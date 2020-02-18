@@ -1,4 +1,5 @@
 export BERT_BASE_DIR=/data3/easton/data/pretrain/chinese_L-12_H-768_A-12
+CUDA_VISIBLE_DEVICES= 
 python main.py \
   --input_file=test.zh.tsv \
   --vocab_file=vocab.txt \

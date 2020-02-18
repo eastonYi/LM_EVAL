@@ -56,8 +56,6 @@ flags.DEFINE_string(
         "specified, we will attempt to automatically detect the GCE project from "
         "metadata.")
 
-flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
-
 
 class InputExample(object):
     def __init__(self, unique_id, text):
@@ -338,7 +336,8 @@ def convert_single_example(ex_index, example, max_seq_length,
         tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
 
     features = create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
-                                                                        FLAGS.max_predictions_per_seq)
+                                      FLAGS.max_predictions_per_seq)
+
     return features, input_tokens
 
 
@@ -371,45 +370,77 @@ def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
     return features
 
 
+# def parse_result(result, all_tokens, output_file=None):
+#     with tf.gfile.GFile(output_file, "w") as writer:
+#         tf.logging.info("***** Predict results *****")
+#         i = 0
+#         sentences = []
+#         for word_loss in result:
+#             # start of a sentence
+#             if all_tokens[i] == "[CLS]":
+#                 sentence = {}
+#                 tokens = []
+#                 sentence_loss = 0.0
+#                 word_count_per_sent = 0
+#                 i += 1
+#
+#             # add token
+#             tokens.append({"token": tokenization.printable_text(all_tokens[i]),
+#                            "prob": '{:.3f}'.format(np.exp(-word_loss[0])) })
+#             sentence_loss += word_loss[0]
+#             word_count_per_sent += 1
+#             i += 1
+#
+#             token_count_per_word = 0
+#             while is_subtoken(all_tokens[i]):
+#                 token_count_per_word += 1
+#                 tokens.append({"token": tokenization.printable_text(all_tokens[i]),
+#                                "prob": '{:.3f}'.format(np.exp(-word_loss[token_count_per_word]))})
+#                 sentence_loss += word_loss[token_count_per_word]
+#                 i += 1
+#
+#             # end of a sentence
+#             if all_tokens[i] == "[SEP]":
+#                 sentence["tokens"] = tokens
+#                 sentence["ppl"] = float(np.exp(sentence_loss / word_count_per_sent))
+#                 sentences.append(sentence)
+#                 i += 1
+#
+#         if output_file is not None:
+#             tf.logging.info("Saving results to %s" % output_file)
+#             writer.write(json.dumps(sentences, indent=2, ensure_ascii=False))
 def parse_result(result, all_tokens, output_file=None):
-    with tf.gfile.GFile(output_file, "w") as writer:
+    with open(output_file, 'a') as fw:
         tf.logging.info("***** Predict results *****")
         i = 0
-        sentences = []
+        list_tokens = []
+        list_scores = []
         for word_loss in result:
             # start of a sentence
             if all_tokens[i] == "[CLS]":
-                sentence = {}
-                tokens = []
                 sentence_loss = 0.0
                 word_count_per_sent = 0
                 i += 1
 
             # add token
-            tokens.append({"token": tokenization.printable_text(all_tokens[i]),
-                                         "prob": float(np.exp(-word_loss[0])) })
+            list_tokens.append(tokenization.printable_text(all_tokens[i]))
+            list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
+
             sentence_loss += word_loss[0]
             word_count_per_sent += 1
             i += 1
 
-            token_count_per_word = 0
-            while is_subtoken(all_tokens[i]):
-                token_count_per_word += 1
-                tokens.append({"token": tokenization.printable_text(all_tokens[i]),
-                                             "prob": float(np.exp(-word_loss[token_count_per_word]))})
-                sentence_loss += word_loss[token_count_per_word]
-                i += 1
-
             # end of a sentence
             if all_tokens[i] == "[SEP]":
-                sentence["tokens"] = tokens
-                sentence["ppl"] = float(np.exp(sentence_loss / word_count_per_sent))
-                sentences.append(sentence)
                 i += 1
 
         if output_file is not None:
             tf.logging.info("Saving results to %s" % output_file)
-            writer.write(json.dumps(sentences, indent=2, ensure_ascii=False))
+            new_line = 'uttid:,' + \
+                        'preds:{},'.format(' '.join(list_tokens)) + \
+                        'score_ac:{}'.format(' '.join(list_scores))
+            fw.write(new_line+'\n')
+
 
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
@@ -424,25 +455,19 @@ def main(_):
 
     tf.gfile.MakeDirs(FLAGS.output_dir)
 
-    tpu_cluster_resolver = None
-
-    is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
     run_config = tf.contrib.tpu.RunConfig(
-            cluster=tpu_cluster_resolver,
-            master=FLAGS.master,
+            cluster=None, master=None,
             model_dir=FLAGS.output_dir,
             tpu_config=tf.contrib.tpu.TPUConfig(
-                    num_shards=FLAGS.num_tpu_cores,
-                    per_host_input_for_training=is_per_host))
+                    num_shards=8,
+                    per_host_input_for_training=3))
 
     model_fn = model_fn_builder(
             bert_config=bert_config,
             init_checkpoint=FLAGS.init_checkpoint)
 
-    # If TPU is not available, this will fall back to normal Estimator on CPU
-    # or GPU.
     estimator = tf.contrib.tpu.TPUEstimator(
-            use_tpu=FLAGS.use_tpu,
+            use_tpu=False,
             model_fn=model_fn,
             config=run_config,
             predict_batch_size=FLAGS.predict_batch_size)
