@@ -412,11 +412,12 @@ def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
 def parse_result(result, all_tokens, output_file=None):
     with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
+        tf.logging.info("Saving results to %s" % output_file)
         i = 0
-        list_tokens = []
-        list_scores = []
         for word_loss in result:
             # start of a sentence
+            list_tokens = []
+            list_scores = []
             if all_tokens[i] == "[CLS]":
                 sentence_loss = 0.0
                 word_count_per_sent = 0
@@ -433,7 +434,6 @@ def parse_result(result, all_tokens, output_file=None):
             # end of a sentence
             if all_tokens[i] == "[SEP]":
                 i += 1
-                tf.logging.info("Saving results to %s" % output_file)
                 new_line = 'uttid:,' + \
                             'preds:{},'.format(' '.join(list_tokens)) + \
                             'score_ac:{}'.format(' '.join(list_scores))
