@@ -414,10 +414,11 @@ def parse_result(result, all_tokens, output_file=None):
         tf.logging.info("***** Predict results *****")
         tf.logging.info("Saving results to %s" % output_file)
         i = 0
+        list_tokens = []
+        list_scores = []
         for word_loss in result:
             # start of a sentence
-            list_tokens = []
-            list_scores = []
+
             if all_tokens[i] == "[CLS]":
                 sentence_loss = 0.0
                 word_count_per_sent = 0
@@ -438,6 +439,8 @@ def parse_result(result, all_tokens, output_file=None):
                             'preds:{},'.format(' '.join(list_tokens)) + \
                             'score_ac:{}'.format(' '.join(list_scores))
                 fw.write(new_line+'\n')
+                list_tokens = []
+                list_scores = []
 
 
 def main(_):
