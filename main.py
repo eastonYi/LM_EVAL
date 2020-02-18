@@ -410,7 +410,7 @@ def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
 #             tf.logging.info("Saving results to %s" % output_file)
 #             writer.write(json.dumps(sentences, indent=2, ensure_ascii=False))
 def parse_result(result, all_tokens, output_file=None):
-    with open(output_file, 'a') as fw:
+    with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
         i = 0
         list_tokens = []
