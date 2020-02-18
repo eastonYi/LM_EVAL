@@ -433,13 +433,11 @@ def parse_result(result, all_tokens, output_file=None):
             # end of a sentence
             if all_tokens[i] == "[SEP]":
                 i += 1
-
-        if output_file is not None:
-            tf.logging.info("Saving results to %s" % output_file)
-            new_line = 'uttid:,' + \
-                        'preds:{},'.format(' '.join(list_tokens)) + \
-                        'score_ac:{}'.format(' '.join(list_scores))
-            fw.write(new_line+'\n')
+                tf.logging.info("Saving results to %s" % output_file)
+                new_line = 'uttid:,' + \
+                            'preds:{},'.format(' '.join(list_tokens)) + \
+                            'score_ac:{}'.format(' '.join(list_scores))
+                fw.write(new_line+'\n')
 
 
 def main(_):
