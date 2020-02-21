@@ -72,7 +72,8 @@ def read_examples(input_file):
             line = tokenization.convert_to_unicode(reader.readline())
             if not line:
                 break
-            line = line.strip()
+            # line = line.strip()
+            line = line.strip().split(',')[1]
             unique_id += 1
             examples.append(
                 InputExample(unique_id, line))
