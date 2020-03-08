@@ -78,7 +78,13 @@ class TextDataSet():
 
             i += mask_count
 
-        return input_ids_new, input_mask, segment_ids, masked_lm_positions, masked_lm_labels
+        output = {"input_ids": input_ids_new,
+                  "input_mask": input_mask,
+                  "segment_ids": segment_ids,
+                  "masked_lm_positions": masked_lm_positions,
+                  "masked_lm_ids": masked_lm_labels}
+
+        return output
 
     def create_masked_lm_prediction(self, input_ids, mask_position, mask_count=1):
         new_input_ids = list(input_ids)
