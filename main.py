@@ -1,12 +1,10 @@
 """BERT language model predict."""
-
-import os
-import json
 import numpy as np
 import tensorflow as tf
 
 import modeling
 import tokenization
+from data_reader import TextDataSet
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -37,11 +35,6 @@ flags.DEFINE_string(
         "init_checkpoint", None,
         "Initial checkpoint (usually from a pre-trained BERT model).")
 
-flags.DEFINE_bool(
-        "do_lower_case", True,
-        "Whether to lower case the input text. Should be True for uncased "
-        "models and False for cased models.")
-
 flags.DEFINE_integer(
         "max_seq_length", 128,
         "The maximum total input sequence length after WordPiece tokenization. "
@@ -55,30 +48,6 @@ flags.DEFINE_string(
         "[Optional] Project name for the Cloud TPU-enabled project. If not "
         "specified, we will attempt to automatically detect the GCE project from "
         "metadata.")
-
-
-class InputExample(object):
-    def __init__(self, unique_id, text):
-        self.unique_id = unique_id
-        self.text = text
-
-
-def read_examples(input_file):
-    """Read a list of `InputExample`s from an input file."""
-    examples = []
-    unique_id = 0
-    with tf.gfile.GFile(input_file, "r") as reader:
-        while True:
-            line = tokenization.convert_to_unicode(reader.readline())
-            if not line:
-                break
-            # line = line.strip()
-            line = line.strip().split(',')[1]
-            unique_id += 1
-            examples.append(
-                InputExample(unique_id, line))
-            unique_id += 1
-    return examples
 
 
 def model_fn_builder(bert_config, init_checkpoint):
@@ -188,188 +157,6 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def input_fn_builder(features, seq_length, max_predictions_per_seq):
-    """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
-    all_input_ids = []
-    all_input_mask = []
-    all_segment_ids = []
-    all_masked_lm_positions = []
-    all_masked_lm_ids = []
-
-    for feature in features:
-        all_input_ids.append(feature.input_ids)
-        all_input_mask.append(feature.input_mask)
-        all_segment_ids.append(feature.segment_ids)
-        all_masked_lm_positions.append(feature.masked_lm_positions)
-        all_masked_lm_ids.append(feature.masked_lm_ids)
-
-    def input_fn(params):
-        """The actual input function."""
-        batch_size = params["batch_size"]
-        num_examples = len(features)
-
-        # This is for demo purposes and does NOT scale to large data sets. We do
-        # not use Dataset.from_generator() because that uses tf.py_func which is
-        # not TPU compatible. The right way to load data is with TFRecordReader.
-        d = tf.data.Dataset.from_tensor_slices({
-                "input_ids":
-                        tf.constant(
-                                all_input_ids, shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "input_mask":
-                        tf.constant(
-                                all_input_mask,
-                                shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "segment_ids":
-                        tf.constant(
-                                all_segment_ids,
-                                shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "masked_lm_positions":
-                        tf.constant(
-                                all_masked_lm_positions,
-                                shape=[num_examples, max_predictions_per_seq],
-                                dtype=tf.int32),
-                "masked_lm_ids":
-                        tf.constant(
-                                all_masked_lm_ids,
-                                shape=[num_examples, max_predictions_per_seq],
-                                dtype=tf.int32)
-        })
-
-        d = d.batch(batch_size=batch_size, drop_remainder=False)
-        return d
-
-    return input_fn
-
-
-# This function is not used by this file but is still used by the Colab and
-# people who depend on it.
-def convert_examples_to_features(examples, max_seq_length, tokenizer):
-    """Convert a set of `InputExample`s to a list of `InputFeatures`."""
-
-    all_features = []
-    all_tokens = []
-
-    for (ex_index, example) in enumerate(examples):
-        if ex_index % 10000 == 0:
-            tf.logging.info("Writing example %d of %d" % (ex_index, len(examples)))
-
-        features, tokens = convert_single_example(ex_index, example, max_seq_length, tokenizer)
-        all_features.extend(features)
-        all_tokens.extend(tokens)
-
-    return all_features, all_tokens
-
-tokenizer = tokenization.FullTokenizer(
-    vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-MASKED_TOKEN = "[MASK]"
-MASKED_ID = tokenizer.convert_tokens_to_ids([MASKED_TOKEN])[0]
-
-
-def create_masked_lm_prediction(input_ids, mask_position, mask_count=1):
-    new_input_ids = list(input_ids)
-    masked_lm_labels = []
-    masked_lm_positions = list(range(mask_position, mask_position + mask_count))
-    for i in masked_lm_positions:
-        new_input_ids[i] = MASKED_ID
-        masked_lm_labels.append(input_ids[i])
-    return new_input_ids, masked_lm_positions, masked_lm_labels
-
-
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self, input_ids, segment_ids, input_mask, masked_lm_positions,
-                             masked_lm_ids):
-        self.input_ids = input_ids,
-        self.segment_ids = segment_ids,
-        self.input_mask = input_mask,
-        self.masked_lm_positions = masked_lm_positions,
-        self.masked_lm_ids = masked_lm_ids,
-
-
-def convert_single_example(ex_index, example, max_seq_length, tokenizer):
-    """Converts a single `InputExample` into a single `InputFeatures`."""
-    tokens = tokenizer.tokenize(example.text)
-
-    # Account for [CLS] and [SEP] with "- 2"
-    if len(tokens) > max_seq_length - 2:
-        tokens = tokens[0:(max_seq_length - 2)]
-
-    input_tokens = []
-    segment_ids = []
-    input_tokens.append("[CLS]")
-    segment_ids.append(0)
-    for token in tokens:
-        input_tokens.append(token)
-        segment_ids.append(0)
-    input_tokens.append("[SEP]")
-    segment_ids.append(0)
-
-    input_ids = tokenizer.convert_tokens_to_ids(input_tokens)
-
-    # The mask has 1 for real tokens and 0 for padding tokens. Only real
-    # tokens are attended to.
-    input_mask = [1] * len(input_ids)
-
-    # Zero-pad up to the sequence length.
-    while len(input_ids) < max_seq_length:
-        input_ids.append(0)
-        input_mask.append(0)
-        segment_ids.append(0)
-
-    assert len(input_ids) == max_seq_length
-    assert len(input_mask) == max_seq_length
-    assert len(segment_ids) == max_seq_length
-
-    if ex_index < 5:
-        tf.logging.info("*** Example ***")
-        tf.logging.info("id: %s" % (example.unique_id))
-        tf.logging.info("tokens: %s" % " ".join(
-                [tokenization.printable_text(x) for x in input_tokens]))
-        tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-        tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-        tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-
-    features = create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
-                                      FLAGS.max_predictions_per_seq)
-
-    return features, input_tokens
-
-
-def is_subtoken(x):
-    return x.startswith("##")
-
-
-def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
-                                                     max_predictions_per_seq):
-    """Mask each token/word sequentially"""
-    features = []
-    i = 1
-    while i < len(input_tokens) - 1:
-        mask_count = 1
-        while is_subtoken(input_tokens[i+mask_count]):
-            mask_count += 1
-
-        input_ids_new, masked_lm_positions, masked_lm_labels = create_masked_lm_prediction(input_ids, i, mask_count)
-        while len(masked_lm_positions) < max_predictions_per_seq:
-            masked_lm_positions.append(0)
-            masked_lm_labels.append(0)
-
-        feature = InputFeatures(
-            input_ids=input_ids_new,
-            input_mask=input_mask,
-            segment_ids=segment_ids,
-            masked_lm_positions=masked_lm_positions,
-            masked_lm_ids=masked_lm_labels)
-        features.append(feature)
-        i += mask_count
-    return features
-
-
 def score(result, all_tokens, output_file=None):
     with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
@@ -435,20 +222,27 @@ def main(_):
             config=run_config,
             predict_batch_size=FLAGS.predict_batch_size)
 
-    predict_examples = read_examples(FLAGS.input_file)
-    features, all_tokens = convert_examples_to_features(predict_examples, FLAGS.max_seq_length, tokenizer)
+    # predict_examples = read_examples(FLAGS.input_file)
+    # features, all_tokens = convert_examples_to_features(predict_examples, FLAGS.max_seq_length, tokenizer)
 
     tf.logging.info("***** Running prediction*****")
-    tf.logging.info("    Num examples = %d", len(predict_examples))
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    predict_input_fn = input_fn_builder(
-            features=features,
-            seq_length=FLAGS.max_seq_length,
-            max_predictions_per_seq=FLAGS.max_predictions_per_seq)
+    dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
-    result = estimator.predict(input_fn=predict_input_fn)
-    score(result, all_tokens, FLAGS.output)
+    def predict_input_fn(params):
+         batch_size = params['batch_size']
+         tf_iter = tf.data.Dataset.from_generator(
+             lambda: dataset, (tf.int32,) * 5,
+             (tf.TensorShape([dataset.max_seq_length]),) * 5 )
+         tf_batch_iterator = tf_iter.batch(batch_size)
+         return tf_batch_iterator
+
+    # result = estimator.predict(input_fn=predict_input_fn)
+    for batch_preds in estimator.predict(input_fn=predict_input_fn):
+        batch_tokens = dataset.batch_tokens_tmp
+        score(batch_preds, batch_tokens, FLAGS.output)
+        dataset.batch_tokens_tmp = []
 
 
 if __name__ == "__main__":
