@@ -25,7 +25,7 @@ flags.DEFINE_string(
         "This specifies the model architecture.")
 
 flags.DEFINE_string(
-        "output_dir", None,
+        "output", None,
         "The output directory where the model checkpoints will be written.")
 
 flags.DEFINE_string("vocab_file", None,
@@ -245,7 +245,6 @@ def input_fn_builder(features, seq_length, max_predictions_per_seq):
     return input_fn
 
 
-
 # This function is not used by this file but is still used by the Colab and
 # people who depend on it.
 def convert_examples_to_features(examples, max_seq_length, tokenizer):
@@ -292,8 +291,7 @@ class InputFeatures(object):
         self.masked_lm_ids = masked_lm_ids,
 
 
-def convert_single_example(ex_index, example, max_seq_length,
-                                                     tokenizer):
+def convert_single_example(ex_index, example, max_seq_length, tokenizer):
     """Converts a single `InputExample` into a single `InputFeatures`."""
     tokens = tokenizer.tokenize(example.text)
 
@@ -345,6 +343,7 @@ def convert_single_example(ex_index, example, max_seq_length,
 def is_subtoken(x):
     return x.startswith("##")
 
+
 def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
                                                      max_predictions_per_seq):
     """Mask each token/word sequentially"""
@@ -371,46 +370,7 @@ def create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids,
     return features
 
 
-# def parse_result(result, all_tokens, output_file=None):
-#     with tf.gfile.GFile(output_file, "w") as writer:
-#         tf.logging.info("***** Predict results *****")
-#         i = 0
-#         sentences = []
-#         for word_loss in result:
-#             # start of a sentence
-#             if all_tokens[i] == "[CLS]":
-#                 sentence = {}
-#                 tokens = []
-#                 sentence_loss = 0.0
-#                 word_count_per_sent = 0
-#                 i += 1
-#
-#             # add token
-#             tokens.append({"token": tokenization.printable_text(all_tokens[i]),
-#                            "prob": '{:.3f}'.format(np.exp(-word_loss[0])) })
-#             sentence_loss += word_loss[0]
-#             word_count_per_sent += 1
-#             i += 1
-#
-#             token_count_per_word = 0
-#             while is_subtoken(all_tokens[i]):
-#                 token_count_per_word += 1
-#                 tokens.append({"token": tokenization.printable_text(all_tokens[i]),
-#                                "prob": '{:.3f}'.format(np.exp(-word_loss[token_count_per_word]))})
-#                 sentence_loss += word_loss[token_count_per_word]
-#                 i += 1
-#
-#             # end of a sentence
-#             if all_tokens[i] == "[SEP]":
-#                 sentence["tokens"] = tokens
-#                 sentence["ppl"] = float(np.exp(sentence_loss / word_count_per_sent))
-#                 sentences.append(sentence)
-#                 i += 1
-#
-#         if output_file is not None:
-#             tf.logging.info("Saving results to %s" % output_file)
-#             writer.write(json.dumps(sentences, indent=2, ensure_ascii=False))
-def parse_result(result, all_tokens, output_file=None):
+def score(result, all_tokens, output_file=None):
     with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
         tf.logging.info("Saving results to %s" % output_file)
@@ -438,7 +398,8 @@ def parse_result(result, all_tokens, output_file=None):
                 i += 1
                 new_line = 'uttid:,' + \
                             'preds:{},'.format(' '.join(list_tokens)) + \
-                            'score_ac:{}'.format(' '.join(list_scores))
+                            'score_lm:{},'.format(' '.join(list_scores)) + \
+                            'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
                 fw.write(new_line+'\n')
                 list_tokens = []
                 list_scores = []
@@ -455,11 +416,11 @@ def main(_):
                 "was only trained up to sequence length %d" %
                 (FLAGS.max_seq_length, bert_config.max_position_embeddings))
 
-    tf.gfile.MakeDirs(FLAGS.output_dir)
+    # tf.gfile.MakeDirs(FLAGS.output_dir)
 
     run_config = tf.contrib.tpu.RunConfig(
             cluster=None, master=None,
-            model_dir=FLAGS.output_dir,
+            # model_dir=FLAGS.output_dir,
             tpu_config=tf.contrib.tpu.TPUConfig(
                     num_shards=8,
                     per_host_input_for_training=3))
@@ -487,8 +448,7 @@ def main(_):
             max_predictions_per_seq=FLAGS.max_predictions_per_seq)
 
     result = estimator.predict(input_fn=predict_input_fn)
-    output_predict_file = os.path.join(FLAGS.output_dir, "test_results.json")
-    parse_result(result, all_tokens, output_predict_file)
+    score(result, all_tokens, FLAGS.output)
 
 
 if __name__ == "__main__":
