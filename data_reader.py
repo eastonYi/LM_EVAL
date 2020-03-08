@@ -30,7 +30,7 @@ class TextDataSet():
         """
         with open(self.data_file) as f:
             for line in f:
-                text = line.strip().split()
+                text = line.strip().split(',')[1]
                 tokens = self.tokenizer.tokenize(text)
 
                 # Account for [CLS] and [SEP] with "- 2"

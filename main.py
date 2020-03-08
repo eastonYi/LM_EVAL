@@ -9,9 +9,6 @@ from data_reader import TextDataSet
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_integer("max_predictions_per_seq", 20,
-"In this task, it also refers to maximum number of masked tokens per word.")
-
 flags.DEFINE_string(
         "bert_config_file", None,
         "The config json file corresponding to the pre-trained BERT model. "
@@ -36,7 +33,7 @@ flags.DEFINE_string(
         "Initial checkpoint (usually from a pre-trained BERT model).")
 
 flags.DEFINE_integer(
-        "max_seq_length", 128,
+        "max_seq_length", 30,
         "The maximum total input sequence length after WordPiece tokenization. "
         "Sequences longer than this will be truncated, and sequences shorter "
         "than this will be padded.")
