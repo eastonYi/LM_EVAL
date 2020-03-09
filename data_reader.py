@@ -1,5 +1,6 @@
 # coding=utf-8
 import tokenization
+import queue
 
 MASKED_TOKEN = "[MASK]"
 
@@ -14,7 +15,7 @@ class TextDataSet():
         self.max_seq_length = max_seq_length
         self.tokenizer = tokenization.FullTokenizer(vocab_file=vocab_file, do_lower_case=True)
         self.MASKED_ID = self.tokenizer.convert_tokens_to_ids([MASKED_TOKEN])[0]
-        self.batch_tokens_tmp = []
+        self.queue_tokens = queue.Queue(100)
 
     def __len__(self):
         return self.size_dataset
@@ -24,10 +25,6 @@ class TextDataSet():
         return sum(1 for line in open(self.data_file))
 
     def __iter__(self):
-        """
-        (Pdb) i
-        [1,18,2,36,1,17,7,9,9,6,25,28,3,5,14,1,11,32,24,16,26,22,3,1,16,15,1,18,8,3,1,4,1]
-        """
         with open(self.data_file) as f:
             for line in f:
                 text = line.strip().split(',')[1]
@@ -37,31 +34,15 @@ class TextDataSet():
                 if len(tokens) > self.max_seq_length - 2:
                     tokens = tokens[0:(self.max_seq_length - 2)]
 
-                input_tokens = []
-                segment_ids = []
-                input_tokens.append("[CLS]")
-                segment_ids.append(0)
-                for token in tokens:
-                    input_tokens.append(token)
-                    segment_ids.append(0)
-                input_tokens.append("[SEP]")
-                segment_ids.append(0)
+                input_tokens = ["[CLS]"] + tokens + ["[SEP]"]
+                segment_ids = [0] * self.max_seq_length
+                len_pad = self.max_seq_length - len(input_tokens)
+                input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
+                input_mask = [1] * len(input_tokens) + [0] * len_pad
 
-                input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens)
+                [self.queue_tokens.put(i) for i in input_tokens]
 
-                # The mask has 1 for real tokens and 0 for padding tokens. Only real
-                # tokens are attended to.
-                input_mask = [1] * len(input_ids)
-
-                # Zero-pad up to the sequence length.
-                while len(input_ids) < self.max_seq_length:
-                    input_ids.append(0)
-                    input_mask.append(0)
-                    segment_ids.append(0)
-
-                self.batch_tokens_tmp.append(tokens)
-
-                yield self.create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids)
+                yield from self.create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids)
 
     def create_sequential_mask(self, input_tokens, input_ids, input_mask, segment_ids):
         """Mask each token/word sequentially"""
@@ -71,20 +52,22 @@ class TextDataSet():
             while is_subtoken(input_tokens[i+mask_count]):
                 mask_count += 1
 
-            input_ids_new, masked_lm_positions, masked_lm_labels = self.create_masked_lm_prediction(input_ids, i, mask_count)
-            while len(masked_lm_positions) < self.max_seq_length:
-                masked_lm_positions.append(0)
-                masked_lm_labels.append(0)
+            input_ids_new, masked_lm_positions, masked_lm_labels = \
+                self.create_masked_lm_prediction(input_ids, i, mask_count)
+            pad_len = self.max_seq_length - len(masked_lm_positions)
+
+            masked_lm_positions += [0] * pad_len
+            masked_lm_labels += [0] * pad_len
 
             i += mask_count
 
-        output = {"input_ids": input_ids_new,
-                  "input_mask": input_mask,
-                  "segment_ids": segment_ids,
-                  "masked_lm_positions": masked_lm_positions,
-                  "masked_lm_ids": masked_lm_labels}
+            output = {"input_ids": input_ids_new,
+                      "input_mask": input_mask,
+                      "segment_ids": segment_ids,
+                      "masked_lm_positions": masked_lm_positions,
+                      "masked_lm_ids": masked_lm_labels}
 
-        return output
+            yield output
 
     def create_masked_lm_prediction(self, input_ids, mask_position, mask_count=1):
         new_input_ids = list(input_ids)

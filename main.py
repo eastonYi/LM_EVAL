@@ -154,7 +154,7 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def score(result, all_tokens, output_file=None):
+def parse_result(result, all_tokens, output_file=None):
     with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
         tf.logging.info("Saving results to %s" % output_file)
@@ -182,11 +182,38 @@ def score(result, all_tokens, output_file=None):
                 i += 1
                 new_line = 'uttid:,' + \
                             'preds:{},'.format(' '.join(list_tokens)) + \
+                            'score_ac:{}'.format(' '.join(list_scores))
+                fw.write(new_line+'\n')
+                list_tokens = []
+                list_scores = []
+
+
+def score(result, queue_tokens, output_file):
+    with open(output_file, 'w') as fw:
+        tf.logging.info("***** Predict results *****")
+        tf.logging.info("Saving results to %s" % FLAGS.output)
+        list_tokens = []
+        list_scores = []
+        for word_loss in result:
+            # start of a sentence
+            token = queue_tokens.get()
+            if token == "[CLS]":
+                sentence_loss = 0.0
+                word_count_per_sent = 0
+            elif token == "[SEP]":
+                new_line = 'uttid:,' + \
+                            'preds:{},'.format(' '.join(list_tokens)) + \
                             'score_lm:{},'.format(' '.join(list_scores)) + \
                             'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
                 fw.write(new_line+'\n')
                 list_tokens = []
                 list_scores = []
+            else:
+                # add token
+                list_tokens.append(tokenization.printable_text(token))
+                list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
+                sentence_loss += word_loss[0]
+                word_count_per_sent += 1
 
 
 def main(_):
@@ -230,16 +257,15 @@ def main(_):
     def predict_input_fn(params):
          batch_size = params['batch_size']
          tf_iter = tf.data.Dataset.from_generator(
-             lambda: dataset, (tf.int32,) * 5,
-             (tf.TensorShape([dataset.max_seq_length]),) * 5 )
+             lambda: dataset,
+             output_types=(tf.int32,) * 5,
+             output_shapes={tf.TensorShape([dataset.max_seq_length]),} * 5 )
          tf_batch_iterator = tf_iter.batch(batch_size)
+
          return tf_batch_iterator
 
-    # result = estimator.predict(input_fn=predict_input_fn)
-    for batch_preds in estimator.predict(input_fn=predict_input_fn):
-        batch_tokens = dataset.batch_tokens_tmp
-        score(batch_preds, batch_tokens, FLAGS.output)
-        dataset.batch_tokens_tmp = []
+    result = estimator.predict(input_fn=predict_input_fn)
+    score(result, dataset.queue_tokens, FLAGS.output)
 
 
 if __name__ == "__main__":
