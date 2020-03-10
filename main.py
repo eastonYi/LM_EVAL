@@ -154,26 +154,32 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def score(result, queue_tokens, output_file):
+def score(result, dataset, output_file):
     with open(output_file, 'w') as fw:
         tf.logging.info("***** Predict results *****")
         tf.logging.info("Saving results to %s" % FLAGS.output)
         list_tokens = []
         list_scores = []
-        for word_loss in result:
+        list_tokens_total = []
+        num_utts = 0
+        for i, word_loss in enumerate(result):
             # start of a sentence
-            token = queue_tokens.get()
+#             import pdb; pdb.set_trace()
+            token = dataset.queue_tokens.get()
+            list_tokens_total.append(token)
             if token == "[CLS]":
                 sentence_loss = 0.0
                 word_count_per_sent = 0
+                uttid = dataset.queue_uttids.get()
             elif token == "[SEP]":
-                new_line = 'uttid:,' + \
-                            'preds:{},'.format(' '.join(list_tokens)) + \
+                new_line = uttid + \
+                            ',preds:{},'.format(' '.join(list_tokens)) + \
                             'score_lm:{},'.format(' '.join(list_scores)) + \
                             'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
                 fw.write(new_line+'\n')
                 list_tokens = []
                 list_scores = []
+                num_utts += 1
             else:
                 # add token
                 list_tokens.append(tokenization.printable_text(token))
@@ -181,6 +187,10 @@ def score(result, queue_tokens, output_file):
 
                 sentence_loss += word_loss[0]
                 word_count_per_sent += 1
+        print('print total {} tokens, {} utts. generate {} tokens, {} utts. rest in queue {} tokens {} utts'.format(i, num_utts, dataset.total_tokens, dataset.total_utts, dataset.queue_tokens.qsize(), dataset.queue_uttids.qsize()))
+        
+        print(''.join(list_tokens_total))
+        print(''.join(dataset.list_tokens))
 
 
 def main(_):
@@ -240,12 +250,14 @@ def main(_):
                 "segment_ids": tf.TensorShape([None]),
                 "masked_lm_positions": tf.TensorShape([None]),
                 "masked_lm_ids": tf.TensorShape([None])
-            }).batch(8)
+            }).batch(8, drop_remainder=False)
         
         return d
 
-    result = estimator.predict(input_fn=predict_input_fn)
-    score(result, dataset.queue_tokens, FLAGS.output)
+    result = estimator.predict(input_fn=predict_input_fn, yield_single_examples=False)
+    import pdb; pdb.set_trace()
+    assert len([1 for i in result])
+    score(result, dataset, FLAGS.output)
 
 
 if __name__ == "__main__":
