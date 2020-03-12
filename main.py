@@ -42,7 +42,7 @@ flags.DEFINE_integer(
 flags.DEFINE_integer("predict_batch_size", 8, "Total batch size for predict.")
 
 
-def model_builder(features, bert_config, init_checkpoint):
+def model_builder(features, bert_config, init_checkpoint, multi=False):
 
     """The `model_fn` for TPUEstimator."""
 
@@ -62,7 +62,8 @@ def model_builder(features, bert_config, init_checkpoint):
                 model.get_sequence_output(),
                 model.get_embedding_table(),
                 masked_lm_positions,
-                masked_lm_ids)
+                masked_lm_ids,
+                multi)
 
     tvars = tf.trainable_variables()
     initialized_variable_names = {}
@@ -75,7 +76,8 @@ def model_builder(features, bert_config, init_checkpoint):
     return masked_lm_example_loss
 
 
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions, label_ids):
+def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+                         label_ids, multi=False):
     """Get loss and log probs for the masked LM."""
     input_tensor = gather_indexes(input_tensor, positions)
 
@@ -103,10 +105,13 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions, l
 
         label_ids = tf.reshape(label_ids, [-1])
 
-        one_hot_labels = tf.one_hot(
-                label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
-        per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
-        loss = tf.reshape(per_example_loss, [-1, tf.shape(positions)[1]])
+        if multi:
+            loss = tf.gather(log_probs[0], label_ids)
+        else:
+            one_hot_labels = tf.one_hot(
+                    label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
+            per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
+            loss = tf.reshape(per_example_loss, [-1, tf.shape(positions)[1]])
         # TODO: dynamic gather from per_example_loss
     return loss
 
@@ -211,7 +216,7 @@ def fixing():
         (tf.int32,) * 4,
         (tf.TensorShape([None]),) * 4).cache().batch(FLAGS.predict_batch_size).prefetch(1).make_initializable_iterator()
 
-    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint)
+    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint, multi=True)
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
@@ -223,36 +228,30 @@ def fixing():
             with open(FLAGS.output, 'w') as fw:
                 tf.logging.info("***** Predict results *****")
                 tf.logging.info("Saving results to %s" % FLAGS.output)
-                list_tokens = []
-                list_scores = []
+                list_to_print = []
                 while True:
                     probs = sess.run(prob_op)
                     for word_loss in probs:
                         # start of a sentence
                         token = dataset.queue_tokens.get()
                         if token == "[CLS]":
-                            sentence_loss = 0.0
-                            word_count_per_sent = 0
                             uttid = dataset.queue_uttids.get()
                             token = dataset.queue_tokens.get()
                         elif token == "[SEP]":
-                            new_line = uttid + \
-                                        ',preds:{},'.format(' '.join(list_tokens)) + \
-                                        'score_lm:{},'.format(' '.join(list_scores)) + \
-                                        'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
+                            new_line = uttid + ',{}'.format(' '.join(list_to_print))
                             fw.write(new_line+'\n')
-                            list_tokens = []
-                            list_scores = []
+                            list_to_print = []
                             token = dataset.queue_tokens.get()
-                            sentence_loss = 0.0
-                            word_count_per_sent = 0
                             uttid = dataset.queue_uttids.get()
                             token = dataset.queue_tokens.get()
 
-                        list_tokens.append(token)
-                        list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
-                        sentence_loss += word_loss[0]
-                        word_count_per_sent += 1
+                        if len(token) > 1:
+                            list_cands = []
+                            for i, token in enumerate(token):
+                                list_cands.append('{}:{:.2f}'.format(token, np.exp(-word_loss)))
+                            list_to_print.append(','.join(list_cands))
+                        else:
+                            list_to_print.append(token[0])
 
         except tf.errors.OutOfRangeError:
             tf.logging.info("***** Finished *****")

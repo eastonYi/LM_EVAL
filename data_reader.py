@@ -71,13 +71,13 @@ class TextDataSet():
 
     def create_masked_lm_prediction(self, input_ids, mask_position, mask_count=1):
         new_input_ids = list(input_ids)
-        masked_lm_labels = []
+        candidate_lm_labels = []
         masked_lm_positions = list(range(mask_position, mask_position + mask_count))
         for i in masked_lm_positions:
             new_input_ids[i] = self.MASKED_ID
-            masked_lm_labels.append(input_ids[i])
+            candidate_lm_labels.append(input_ids[i])
 
-        return new_input_ids, masked_lm_positions, masked_lm_labels
+        return new_input_ids, masked_lm_positions, candidate_lm_labels
 
 
 def is_subtoken(x):
@@ -99,18 +99,20 @@ class ASRDecoded(TextDataSet):
                 list_cands = candidates.split()
                 assert len(list_cands) == len(tokens)
 
-                list_decoded_prob = []
+                list_decoded_cands = [] # [[*], [*], [*, *], [*], [*, *]]
                 list_vague_idx = []
+                list_vague_cands = []
                 for i, cands in enumerate(list_cands):
-                    list_cands = cands.split(',')
-                    list_cand_prob = []
-                    for cand in list_cands:
+                    list_cands = [] # [*] or [*, *]
+                    for cand in cands.split(','):
                         token, prob = cand.split(':')
                         prob = float(prob)
                         if prob > 0.01:
-                            list_cand_prob.append((token, prob))
-                            list_vague_idx.append(i)
-                    list_decoded_prob.append(list_cand_prob)
+                            list_cands.append(token)
+                    if len(list_cands) > 1:
+                        list_vague_idx.append(i)
+                        list_vague_cands.append(self.tokenizer.convert_tokens_to_ids(list_cands))
+                    list_decoded_cands.append(list_cands)
 
                 # Account for [CLS] and [SEP] with "- 2"
                 if len(tokens) > self.max_seq_length - 2:
@@ -122,17 +124,21 @@ class ASRDecoded(TextDataSet):
                 input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
                 input_mask = [1] * len(input_tokens) + [0] * len_pad
 
-                [self.queue_tokens.put(i) for i in input_tokens]
+                [self.queue_tokens.put(i) for i in list_decoded_cands]
                 self.queue_uttids.put(ref)
 
                 if i % 1000 == 0:
                     print('processed {} sentences.'.format(i))
 
-                yield from self.create_sequential_mask(input_tokens, input_ids, input_mask, list_vague_idx)
+                yield from self.create_sequential_mask(
+                    input_tokens, input_ids, input_mask, list_vague_idx, list_vague_cands)
 
-    def create_sequential_mask(self, input_tokens, input_ids, input_mask, list_vague_idx):
+    def create_sequential_mask(self, input_tokens, input_ids, input_mask,
+                               list_vague_idx, list_vague_cands):
         """Mask each token/word sequentially"""
 
+        assert len(list_vague_idx) == len(list_vague_cands)
+        list_vague_cands.reverse()
         for i in range(1, len(input_tokens)-1):
 
             if i-1 not in list_vague_idx: continue
@@ -140,14 +146,25 @@ class ASRDecoded(TextDataSet):
             while is_subtoken(input_tokens[i+mask_count]):
                 mask_count += 1
 
+            cand_ids = list_vague_cands.pop()
             input_ids_new, masked_lm_positions, masked_lm_labels = \
                 self.create_masked_lm_prediction(input_ids, i, mask_count)
-            pad_len = self.max_seq_length - len(masked_lm_positions)
 
-            masked_lm_positions += [0] * pad_len
-            masked_lm_labels += [0] * pad_len
+            masked_lm_positions += [0] * (self.max_seq_length - len(masked_lm_positions))
+            cand_ids += [0] * (self.max_seq_length - len(cand_ids))
 
             i += mask_count
             output = (input_ids_new, input_mask, masked_lm_positions, masked_lm_labels)
+            print(i)
 
             yield output
+
+    def create_masked_lm_prediction(self, input_ids, mask_position, mask_count=1):
+        new_input_ids = list(input_ids)
+        candidate_lm_labels = []
+        masked_lm_positions = list(range(mask_position, mask_position + mask_count))
+        for i in masked_lm_positions:
+            new_input_ids[i] = self.MASKED_ID
+            candidate_lm_labels.append(input_ids[i])
+
+        return new_input_ids, masked_lm_positions, candidate_lm_labels
