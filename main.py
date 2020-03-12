@@ -16,7 +16,10 @@ flags.DEFINE_string(
         "input_file", 'test.zh.tsv',
         "The config json file corresponding to the pre-trained BERT model. "
         "This specifies the model architecture.")
-
+flags.DEFINE_string(
+        "ref_file", 'test.zh.tsv',
+        "The config json file corresponding to the pre-trained BERT model. "
+        "This specifies the model architecture.")
 flags.DEFINE_string(
         "output", None,
         "The output directory where the model checkpoints will be written.")
@@ -193,6 +196,7 @@ def sorting():
 
 def fixing():
     from data_reader import ASRDecoded
+
     tf.logging.set_verbosity(tf.logging.INFO)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
@@ -200,7 +204,7 @@ def fixing():
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    dataset = ASRDecoded(FLAGS.ref_file, FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     batch_iter = tf.data.Dataset.from_generator(
         lambda: dataset,
