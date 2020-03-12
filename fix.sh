@@ -1,0 +1,9 @@
+export BERT_BASE_DIR=/data3/easton/data/pretrain/chinese_L-12_H-768_A-12
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --input_file=preds_top4.probs \
+  --vocab_file=$BERT_BASE_DIR/vocab.txt \
+  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
+  --max_seq_length=40 \
+  --predict_batch_size=10 \
+  --output='preds_top4.probs.fixed'
