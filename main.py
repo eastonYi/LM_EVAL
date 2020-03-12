@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 
 import modeling
-import tokenization
 from data_reader import TextDataSet
 
 flags = tf.flags
@@ -40,34 +39,20 @@ flags.DEFINE_integer(
 
 flags.DEFINE_integer("predict_batch_size", 8, "Total batch size for predict.")
 
-flags.DEFINE_string(
-        "gcp_project", None,
-        "[Optional] Project name for the Cloud TPU-enabled project. If not "
-        "specified, we will attempt to automatically detect the GCE project from "
-        "metadata.")
 
+def model_builder(features, bert_config, init_checkpoint):
 
-def model_fn_builder(bert_config, init_checkpoint):
-    """Returns `model_fn` closure for TPUEstimator."""
+    """The `model_fn` for TPUEstimator."""
 
-    def model_fn(features, mode, params):    # pylint: disable=unused-argument
-        """The `model_fn` for TPUEstimator."""
+    input_ids, input_mask, masked_lm_positions, masked_lm_ids = features.get_next()
+    segment_ids = tf.zeros_like(input_mask)
 
-        tf.logging.info("*** Features ***")
-        for name in sorted(features.keys()):
-            tf.logging.info("    name = %s, shape = %s" % (name, features[name].shape))
-
-        input_ids = features["input_ids"]
-        input_mask = features["input_mask"]
-        segment_ids = features["segment_ids"]
-        masked_lm_positions = features["masked_lm_positions"]
-        masked_lm_ids = features["masked_lm_ids"]
-
+    with tf.device("/gpu:0"):
         model = modeling.BertModel(
                 config=bert_config,
                 is_training=False,
                 input_ids=input_ids,
-                input_mask=input_mask,
+                input_mask=(input_mask),
                 token_type_ids=segment_ids)
 
         masked_lm_example_loss = get_masked_lm_output(
@@ -77,29 +62,15 @@ def model_fn_builder(bert_config, init_checkpoint):
                 masked_lm_positions,
                 masked_lm_ids)
 
-        tvars = tf.trainable_variables()
-        initialized_variable_names = {}
-        scaffold_fn = None
-        if init_checkpoint:
-            (assignment_map, initialized_variable_names
-            ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
-            tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+    tvars = tf.trainable_variables()
+    initialized_variable_names = {}
 
-        tf.logging.info("**** Trainable Variables ****")
-        for var in tvars:
-            init_string = ""
-            if var.name in initialized_variable_names:
-                init_string = ", *INIT_FROM_CKPT*"
-            tf.logging.info("    name = %s, shape = %s%s", var.name, var.shape,
-                                            init_string)
+    if init_checkpoint:
+        (assignment_map, initialized_variable_names
+        ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
+        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
-        output_spec = None
-        if mode == tf.estimator.ModeKeys.PREDICT:
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-                    mode=mode, predictions=masked_lm_example_loss, scaffold_fn=scaffold_fn)    # 输出mask_word的score
-        return output_spec
-
-    return model_fn
+    return masked_lm_example_loss
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions, label_ids):
@@ -154,127 +125,131 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def score(result, queue_tokens, output_file):
-    with open(output_file, 'w') as fw:
-        tf.logging.info("***** Predict results *****")
-        tf.logging.info("Saving results to %s" % FLAGS.output)
-        list_tokens = []
-        list_scores = []
-        for word_loss in result:
-            # start of a sentence
-            token = queue_tokens.get()
-            if token == "[CLS]":
-                sentence_loss = 0.0
-                word_count_per_sent = 0
-            elif token == "[SEP]":
-                new_line = 'uttid:,' + \
-                            'preds:{},'.format(' '.join(list_tokens)) + \
-                            'score_lm:{},'.format(' '.join(list_scores)) + \
-                            'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
-                fw.write(new_line+'\n')
-                list_tokens = []
-                list_scores = []
-            else:
-                # add token
-                list_tokens.append(tokenization.printable_text(token))
-                list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
-
-                sentence_loss += word_loss[0]
-                word_count_per_sent += 1
+def choose_device(op, device, default_device):
+    if op.type.startswith('Variable'):
+        device = default_device
+    return device
 
 
-def score(result, queue_tokens, output_file):
-    with open(output_file, 'w') as fw:
-        tf.logging.info("***** Predict results *****")
-        tf.logging.info("Saving results to %s" % FLAGS.output)
-        list_tokens = []
-        list_scores = []
-        for word_loss in result:
-            # start of a sentence
-            token = queue_tokens.get()
-            if token == "[CLS]":
-                sentence_loss = 0.0
-                word_count_per_sent = 0
-            elif token == "[SEP]":
-                new_line = 'uttid:,' + \
-                            'preds:{},'.format(' '.join(list_tokens)) + \
-                            'score_lm:{},'.format(' '.join(list_scores)) + \
-                            'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
-                fw.write(new_line+'\n')
-                list_tokens = []
-                list_scores = []
-            else:
-                # add token
-                list_tokens.append(tokenization.printable_text(token))
-                list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
-                sentence_loss += word_loss[0]
-                word_count_per_sent += 1
-
-
-def main(_):
+def sorting():
     tf.logging.set_verbosity(tf.logging.INFO)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-
-    if FLAGS.max_seq_length > bert_config.max_position_embeddings:
-        raise ValueError(
-                "Cannot use sequence length %d because the BERT model "
-                "was only trained up to sequence length %d" %
-                (FLAGS.max_seq_length, bert_config.max_position_embeddings))
-
-    # tf.gfile.MakeDirs(FLAGS.output_dir)
-
-    run_config = tf.contrib.tpu.RunConfig(
-            cluster=None, master=None,
-            # model_dir=FLAGS.output_dir,
-            tpu_config=tf.contrib.tpu.TPUConfig(
-                    num_shards=8,
-                    per_host_input_for_training=3))
-
-    model_fn = model_fn_builder(
-            bert_config=bert_config,
-            init_checkpoint=FLAGS.init_checkpoint)
-
-    estimator = tf.contrib.tpu.TPUEstimator(
-            use_tpu=False,
-            model_fn=model_fn,
-            config=run_config,
-            predict_batch_size=FLAGS.predict_batch_size)
-
-    # predict_examples = read_examples(FLAGS.input_file)
-    # features, all_tokens = convert_examples_to_features(predict_examples, FLAGS.max_seq_length, tokenizer)
 
     tf.logging.info("***** Running prediction*****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
     dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
-    # result = estimator.predict(input_fn=predict_input_fn)
-    def predict_input_fn(params):
-        batch_size = params['batch_size']
+    batch_iter = tf.data.Dataset.from_generator(
+        lambda: dataset,
+        (tf.int32,) * 4,
+        (tf.TensorShape([None]),) * 4).batch(8).make_initializable_iterator()
 
-        d = tf.data.Dataset.from_generator(
-            lambda: dataset,
-            {
-                "input_ids": tf.int32,
-                "input_mask": tf.int32,
-                "segment_ids": tf.int32,
-                "masked_lm_positions": tf.int32,
-                "masked_lm_ids": tf.int32
-            },
-            {
-                "input_ids": tf.TensorShape([None]),
-                "input_mask": tf.TensorShape([None]),
-                "segment_ids": tf.TensorShape([None]),
-                "masked_lm_positions": tf.TensorShape([None]),
-                "masked_lm_ids": tf.TensorShape([None])
-            }).batch(8)
+    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint)
 
-        return d
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    config.gpu_options.allow_growth = True
+    config.log_device_placement = False
+    with tf.train.MonitoredTrainingSession(config=config) as sess:
+        sess.run(batch_iter.initializer)
+        try:
+            with open(FLAGS.output, 'w') as fw:
+                tf.logging.info("***** Predict results *****")
+                tf.logging.info("Saving results to %s" % FLAGS.output)
+                list_tokens = []
+                list_scores = []
+                while True:
+                    probs = sess.run(prob_op)
 
-    result = estimator.predict(input_fn=predict_input_fn)
-    score(result, dataset.queue_tokens, FLAGS.output)
+                    for word_loss in probs:
+                        # start of a sentence
+                        token = dataset.queue_tokens.get()
+                        if token == "[CLS]":
+                            sentence_loss = 0.0
+                            word_count_per_sent = 0
+                            uttid = dataset.queue_uttids.get()
+                            token = dataset.queue_tokens.get()
+                        elif token == "[SEP]":
+                            new_line = uttid + \
+                                        'preds:{},'.format(' '.join(list_tokens)) + \
+                                        'score_lm:{},'.format(' '.join(list_scores)) + \
+                                        'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
+                            fw.write(new_line+'\n')
+                            list_tokens = []
+                            list_scores = []
+                            token = dataset.queue_tokens.get()
+                        # add token
+                        list_tokens.append(token)
+                        list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
+                        sentence_loss += word_loss[0]
+                        word_count_per_sent += 1
+
+        except tf.errors.OutOfRangeError:
+            tf.logging.info("***** Finished *****")
+
+
+def fixing():
+    tf.logging.set_verbosity(tf.logging.INFO)
+
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+
+    tf.logging.info("***** Running Fixing *****")
+    tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
+
+    dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+
+    batch_iter = tf.data.Dataset.from_generator(
+        lambda: dataset,
+        (tf.int32,) * 4,
+        (tf.TensorShape([None]),) * 4).batch(8).make_initializable_iterator()
+
+    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint)
+
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    config.gpu_options.allow_growth = True
+    config.log_device_placement = False
+    with tf.train.MonitoredTrainingSession(config=config) as sess:
+        sess.run(batch_iter.initializer)
+        try:
+            with open(FLAGS.output, 'w') as fw:
+                tf.logging.info("***** Predict results *****")
+                tf.logging.info("Saving results to %s" % FLAGS.output)
+                list_tokens = []
+                list_scores = []
+                while True:
+                    probs = sess.run(prob_op)
+
+                    for word_loss in probs:
+                        # start of a sentence
+                        token = dataset.queue_tokens.get()
+                        if token == "[CLS]":
+                            sentence_loss = 0.0
+                            word_count_per_sent = 0
+                            uttid = dataset.queue_uttids.get()
+                            token = dataset.queue_tokens.get()
+                        elif token == "[SEP]":
+                            new_line = uttid + \
+                                        'preds:{},'.format(' '.join(list_tokens)) + \
+                                        'score_lm:{},'.format(' '.join(list_scores)) + \
+                                        'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
+                            fw.write(new_line+'\n')
+                            list_tokens = []
+                            list_scores = []
+                            token = dataset.queue_tokens.get()
+                        # add token
+                        list_tokens.append(token)
+                        list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
+                        sentence_loss += word_loss[0]
+                        word_count_per_sent += 1
+
+        except tf.errors.OutOfRangeError:
+            tf.logging.info("***** Finished *****")
+
 
 
 if __name__ == "__main__":
-    tf.app.run()
+    # main()
+    fixing()

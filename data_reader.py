@@ -4,6 +4,7 @@ import queue
 
 MASKED_TOKEN = "[MASK]"
 
+
 class TextDataSet():
     """
     dataset for language model. Refer to the PTB dataset
@@ -15,7 +16,8 @@ class TextDataSet():
         self.max_seq_length = max_seq_length
         self.tokenizer = tokenization.FullTokenizer(vocab_file=vocab_file, do_lower_case=True)
         self.MASKED_ID = self.tokenizer.convert_tokens_to_ids([MASKED_TOKEN])[0]
-        self.queue_tokens = queue.Queue(100)
+        self.queue_tokens = queue.Queue(20000)
+        self.queue_uttids = queue.Queue(2000)
 
     def __len__(self):
         return self.size_dataset
@@ -26,8 +28,8 @@ class TextDataSet():
 
     def __iter__(self):
         with open(self.data_file) as f:
-            for line in f:
-                text = line.strip().split(',')[1]
+            for i, line in enumerate(f):
+                uttid, text = line.strip().split()
                 tokens = self.tokenizer.tokenize(text)
 
                 # Account for [CLS] and [SEP] with "- 2"
@@ -35,19 +37,22 @@ class TextDataSet():
                     tokens = tokens[0:(self.max_seq_length - 2)]
 
                 input_tokens = ["[CLS]"] + tokens + ["[SEP]"]
-                segment_ids = [0] * self.max_seq_length
                 len_pad = self.max_seq_length - len(input_tokens)
                 input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
                 input_mask = [1] * len(input_tokens) + [0] * len_pad
 
                 [self.queue_tokens.put(i) for i in input_tokens]
+                self.queue_uttids.put(uttid)
 
-                yield from self.create_sequential_mask(input_tokens, input_ids, input_mask, segment_ids)
+                if i % 1000 == 0:
+                    print('processed {} sentences.'.format(i))
 
-    def create_sequential_mask(self, input_tokens, input_ids, input_mask, segment_ids):
+                yield from self.create_sequential_mask(input_tokens, input_ids, input_mask)
+
+    def create_sequential_mask(self, input_tokens, input_ids, input_mask):
         """Mask each token/word sequentially"""
-        i = 1
-        while i < len(input_tokens) - 1:
+
+        for i in range(1, len(input_tokens)-1):
             mask_count = 1
             while is_subtoken(input_tokens[i+mask_count]):
                 mask_count += 1
@@ -60,12 +65,7 @@ class TextDataSet():
             masked_lm_labels += [0] * pad_len
 
             i += mask_count
-
-            output = {"input_ids": input_ids_new,
-                      "input_mask": input_mask,
-                      "segment_ids": segment_ids,
-                      "masked_lm_positions": masked_lm_positions,
-                      "masked_lm_ids": masked_lm_labels}
+            output = (input_ids_new, input_mask, masked_lm_positions, masked_lm_labels)
 
             yield output
 
@@ -76,8 +76,78 @@ class TextDataSet():
         for i in masked_lm_positions:
             new_input_ids[i] = self.MASKED_ID
             masked_lm_labels.append(input_ids[i])
+
         return new_input_ids, masked_lm_positions, masked_lm_labels
 
 
 def is_subtoken(x):
     return x.startswith("##")
+
+
+class ASRDecoded(TextDataSet):
+    def __init__(self, data_file, ref_file, vocab_file, max_seq_length):
+        self.ref_file = ref_file
+        super().__init__(data_file, vocab_file, max_seq_length)
+
+    def __iter__(self):
+        with open(self.ref_file) as f_ref, open(self.data_file) as f:
+
+            for i, (line_ref, line) in enumerate(zip(f_ref, f)):
+                _, ref = line_ref.strip().split()
+                _, text, candidates = line.strip().split(',', maxsplit=2)
+                tokens = list(text)
+                list_cands = candidates.split()
+                assert len(list_cands) == len(tokens)
+
+                list_decoded_prob = []
+                list_vague_idx = []
+                for i, cands in enumerate(list_cands):
+                    list_cands = cands.split(',')
+                    list_cand_prob = []
+                    for cand in list_cands:
+                        token, prob = cand.split(':')
+                        prob = float(prob)
+                        if prob > 0.01:
+                            list_cand_prob.append((token, prob))
+                            list_vague_idx.append(i)
+                    list_decoded_prob.append(list_cand_prob)
+
+                # Account for [CLS] and [SEP] with "- 2"
+                if len(tokens) > self.max_seq_length - 2:
+                    print("there is a sent's length larger than {}".format(self.max_seq_length))
+                    tokens = tokens[0:(self.max_seq_length - 2)]
+
+                input_tokens = ["[CLS]"] + tokens + ["[SEP]"]
+                len_pad = self.max_seq_length - len(input_tokens)
+                input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
+                input_mask = [1] * len(input_tokens) + [0] * len_pad
+
+                [self.queue_tokens.put(i) for i in input_tokens]
+                self.queue_uttids.put(ref)
+
+                if i % 1000 == 0:
+                    print('processed {} sentences.'.format(i))
+
+                yield from self.create_sequential_mask(input_tokens, input_ids, input_mask, list_vague_idx)
+
+    def create_sequential_mask(self, input_tokens, input_ids, input_mask, list_vague_idx):
+        """Mask each token/word sequentially"""
+
+        for i in range(1, len(input_tokens)-1):
+
+            if i-1 not in list_vague_idx: continue
+            mask_count = 1
+            while is_subtoken(input_tokens[i+mask_count]):
+                mask_count += 1
+
+            input_ids_new, masked_lm_positions, masked_lm_labels = \
+                self.create_masked_lm_prediction(input_ids, i, mask_count)
+            pad_len = self.max_seq_length - len(masked_lm_positions)
+
+            masked_lm_positions += [0] * pad_len
+            masked_lm_labels += [0] * pad_len
+
+            i += mask_count
+            output = (input_ids_new, input_mask, masked_lm_positions, masked_lm_labels)
+
+            yield output
