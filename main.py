@@ -203,7 +203,7 @@ def fixing():
     batch_iter = tf.data.Dataset.from_generator(
         lambda: dataset,
         (tf.int32,) * 4,
-        (tf.TensorShape([None]),) * 4).batch(8).make_initializable_iterator()
+        (tf.TensorShape([None]),) * 4).cache().batch(FLAGS.predict_batch_size).prefetch(1).make_initializable_iterator()
 
     prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint)
 
@@ -221,7 +221,6 @@ def fixing():
                 list_scores = []
                 while True:
                     probs = sess.run(prob_op)
-
                     for word_loss in probs:
                         # start of a sentence
                         token = dataset.queue_tokens.get()
@@ -232,14 +231,18 @@ def fixing():
                             token = dataset.queue_tokens.get()
                         elif token == "[SEP]":
                             new_line = uttid + \
-                                        'preds:{},'.format(' '.join(list_tokens)) + \
+                                        ',preds:{},'.format(' '.join(list_tokens)) + \
                                         'score_lm:{},'.format(' '.join(list_scores)) + \
                                         'ppl:{:.2f}'.format(float(np.exp(sentence_loss / word_count_per_sent)))
                             fw.write(new_line+'\n')
                             list_tokens = []
                             list_scores = []
                             token = dataset.queue_tokens.get()
-                        # add token
+                            sentence_loss = 0.0
+                            word_count_per_sent = 0
+                            uttid = dataset.queue_uttids.get()
+                            token = dataset.queue_tokens.get()
+
                         list_tokens.append(token)
                         list_scores.append('{:.3f}'.format(np.exp(-word_loss[0])))
                         sentence_loss += word_loss[0]
@@ -247,7 +250,6 @@ def fixing():
 
         except tf.errors.OutOfRangeError:
             tf.logging.info("***** Finished *****")
-
 
 
 if __name__ == "__main__":
