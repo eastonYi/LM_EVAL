@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 
 import modeling
-from data_reader import TextDataSet
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -132,6 +131,8 @@ def choose_device(op, device, default_device):
 
 
 def sorting():
+    from data_reader import TextDataSet
+
     tf.logging.set_verbosity(tf.logging.INFO)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
@@ -191,6 +192,7 @@ def sorting():
 
 
 def fixing():
+    from data_reader import ASRDecoded
     tf.logging.set_verbosity(tf.logging.INFO)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
@@ -198,7 +200,7 @@ def fixing():
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    dataset = ASRDecoded(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     batch_iter = tf.data.Dataset.from_generator(
         lambda: dataset,
