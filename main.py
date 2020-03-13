@@ -201,60 +201,68 @@ def sorting():
 
 def fixing():
     from data_reader import ASRDecoded
+    from multiprocessing import Process, Queue
 
     tf.logging.set_verbosity(tf.logging.INFO)
-
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
     dataset = ASRDecoded(FLAGS.ref_file, FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
-    batch_iter = tf.data.Dataset.from_generator(
-        lambda: dataset,
-        (tf.int32,) * 4,
-        (tf.TensorShape([None]),) * 4).cache().batch(FLAGS.predict_batch_size).prefetch(1).make_initializable_iterator()
+    queue_vagues_lm_prob = Queue(maxsize=2*FLAGS.predict_batch_size)
 
-    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint, multi=True)
+    def lm_decode():
+        nonlocal dataset
+        
+        bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
-    config = tf.ConfigProto()
-    config.allow_soft_placement = True
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = False
-    with tf.train.MonitoredTrainingSession(config=config) as sess:
-        sess.run(batch_iter.initializer)
-        try:
-            with open(FLAGS.output, 'w') as fw:
-                tf.logging.info("***** Predict results *****")
-                tf.logging.info("Saving results to %s" % FLAGS.output)
-                list_to_print = []
+        batch_iter = tf.data.Dataset.from_generator(
+            lambda: dataset,
+            (tf.int32,) * 4,
+            (tf.TensorShape([None]),) * 4).cache().batch(FLAGS.predict_batch_size).prefetch(1).make_initializable_iterator()
+
+        prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint, multi=True)
+
+        tf.logging.info("***** Predict results *****")
+        tf.logging.info("Saving results to %s" % FLAGS.output)
+
+        config = tf.ConfigProto()
+        config.allow_soft_placement = True
+        config.gpu_options.allow_growth = True
+        config.log_device_placement = False
+        with tf.train.MonitoredTrainingSession(config=config) as sess:
+            sess.run(batch_iter.initializer)
+            try:
                 while True:
                     probs = sess.run(prob_op)
-                    for word_loss in probs:
-                        # start of a sentence
-                        token = dataset.queue_tokens.get()
-                        if token == "[CLS]":
-                            uttid = dataset.queue_uttids.get()
-                            token = dataset.queue_tokens.get()
-                        elif token == "[SEP]":
-                            new_line = uttid + ',{}'.format(' '.join(list_to_print))
-                            fw.write(new_line+'\n')
-                            list_to_print = []
-                            token = dataset.queue_tokens.get()
-                            uttid = dataset.queue_uttids.get()
-                            token = dataset.queue_tokens.get()
+                    [queue_vagues_lm_prob.put(i) for i in probs]
 
-                        if len(token) > 1:
-                            list_cands = []
-                            for i, token in enumerate(token):
-                                list_cands.append('{}:{:.2f}'.format(token, np.exp(-word_loss)))
-                            list_to_print.append(','.join(list_cands))
-                        else:
-                            list_to_print.append(token[0])
+            except tf.errors.OutOfRangeError:
+                tf.logging.info("***** Finished *****")
 
-        except tf.errors.OutOfRangeError:
-            tf.logging.info("***** Finished *****")
+
+    p1 = Process(target=lm_decode)
+    p1.start()
+    with open(FLAGS.output, 'w') as fw:
+        while True: # sent loop
+            # start of a sentence
+            utt = dataset.queue_utts.get()
+            uttid = dataset.queue_uttids.get()
+
+            list_to_print = []
+            for tokens in utt:
+                if len(tokens) > 1:
+                    word_loss = queue_vagues_lm_prob.get()
+                    list_cands = []
+                    for i, token in enumerate(tokens):
+                        list_cands.append('{}:{:.2f}'.format(token, np.exp(-word_loss[i])))
+                    list_to_print.append(','.join(list_cands))
+                else:
+                    list_to_print.append(tokens[0])
+
+                new_line = uttid + ',{}'.format(' '.join(list_to_print))
+                fw.write(new_line+'\n')
 
 
 if __name__ == "__main__":

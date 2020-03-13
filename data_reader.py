@@ -87,6 +87,7 @@ def is_subtoken(x):
 class ASRDecoded(TextDataSet):
     def __init__(self, data_file, ref_file, vocab_file, max_seq_length):
         self.ref_file = ref_file
+        self.queue_utts = queue.Queue(2000)
         super().__init__(data_file, vocab_file, max_seq_length)
 
     def __iter__(self):
@@ -124,7 +125,7 @@ class ASRDecoded(TextDataSet):
                 input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
                 input_mask = [1] * len(input_tokens) + [0] * len_pad
 
-                [self.queue_tokens.put(i) for i in list_decoded_cands]
+                self.queue_utts.put(list_decoded_cands)
                 self.queue_uttids.put(ref)
 
                 if i % 1000 == 0:
@@ -154,8 +155,7 @@ class ASRDecoded(TextDataSet):
             cand_ids += [0] * (self.max_seq_length - len(cand_ids))
 
             i += mask_count
-            output = (input_ids_new, input_mask, masked_lm_positions, masked_lm_labels)
-            print(i)
+            output = (input_ids_new, input_mask, masked_lm_positions, cand_ids)
 
             yield output
 
