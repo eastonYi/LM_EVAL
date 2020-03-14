@@ -106,7 +106,8 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
         label_ids = tf.reshape(label_ids, [-1])
 
         if multi:
-            loss = tf.gather(log_probs[0], label_ids)
+            loss = -tf.gather(log_probs[0], label_ids)
+            loss = tf.reshape(loss, [-1, tf.shape(positions)[1]])
         else:
             one_hot_labels = tf.one_hot(
                     label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
@@ -202,19 +203,20 @@ def sorting():
 def fixing():
     from data_reader import ASRDecoded
     from multiprocessing import Process, Queue
+    from threading import Thread
 
     tf.logging.set_verbosity(tf.logging.INFO)
 
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded(FLAGS.ref_file, FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    dataset = ASRDecoded(FLAGS.input_file, FLAGS.ref_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     queue_vagues_lm_prob = Queue(maxsize=2*FLAGS.predict_batch_size)
 
     def lm_decode():
         nonlocal dataset
-        
+
         bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
         batch_iter = tf.data.Dataset.from_generator(
@@ -237,32 +239,38 @@ def fixing():
                 while True:
                     probs = sess.run(prob_op)
                     [queue_vagues_lm_prob.put(i) for i in probs]
-
             except tf.errors.OutOfRangeError:
-                tf.logging.info("***** Finished *****")
+                tf.logging.info("***** Finished session *****")
 
-
-    p1 = Process(target=lm_decode)
+    p1 = Thread(target=lm_decode)
     p1.start()
     with open(FLAGS.output, 'w') as fw:
         while True: # sent loop
             # start of a sentence
-            utt = dataset.queue_utts.get()
+            utt = dataset.queue_utts.get(timeout=100)
             uttid = dataset.queue_uttids.get()
 
-            list_to_print = []
+            list_fixed= []
+            list_orgin = []
             for tokens in utt:
                 if len(tokens) > 1:
                     word_loss = queue_vagues_lm_prob.get()
                     list_cands = []
                     for i, token in enumerate(tokens):
-                        list_cands.append('{}:{:.2f}'.format(token, np.exp(-word_loss[i])))
-                    list_to_print.append(','.join(list_cands))
+                        list_cands.append('{}:{:.2e}'.format(token, np.exp(-word_loss[i])))
+                    list_cands.sort(key=lambda x: float(x.split(':')[1]), reverse=True)
+                    list_fixed.append('(')
+                    list_fixed.append(','.join(list_cands))
+                    list_fixed.append(')')
                 else:
-                    list_to_print.append(tokens[0])
+                    list_fixed.append(tokens[0])
+                list_orgin.append(tokens[0])
 
-                new_line = uttid + ',{}'.format(' '.join(list_to_print))
-                fw.write(new_line+'\n')
+            new_line = 'ref:' + uttid + \
+            ',asr output:' + ''.join(list_orgin) + \
+            ',lm fixed:' + ''.join(list_fixed)
+            fw.write(new_line+'\n')
+    p1.join()
 
 
 if __name__ == "__main__":
