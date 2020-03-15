@@ -88,7 +88,6 @@ def is_subtoken(x):
 class ASRDecoded(TextDataSet):
     def __init__(self, data_file, ref_file, vocab_file, max_seq_length):
         self.ref_file = ref_file
-        self.queue_utts = queue.Queue(1000)
         super().__init__(data_file, vocab_file, max_seq_length)
 
     def __iter__(self):
@@ -144,47 +143,36 @@ class ASRDecoded(TextDataSet):
                 input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
                 input_mask = [1] * len(input_tokens) + [0] * len_pad
 
-                self.queue_utts.put(list_decoded_cands)
-                self.queue_uttids.put(ref)
-
                 num_converted += 1
 
                 if i % 1000 == 0:
                     print('processed {} sentences.'.format(i))
-#                 print('processed and store {} utts'.format(self.queue_utts.qsize()))
+                # print(list_decoded_cands)
+                if list_vague_idx:
+                    tmp = self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
+                    yield ref, list_decoded_cands, tmp
+                else:
+                    yield ref, list_decoded_cands
 
-                yield from self.create_sequential_mask(
-                    input_tokens, input_ids, input_mask, list_vague_idx, list_vague_cands)
+        print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
 
-        print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i))
-
-    def create_sequential_mask(self, input_tokens, input_ids, input_mask,
-                               list_vague_idx, list_vague_cands):
+    def create_sequential_mask(self, input_ids, input_mask, list_vague_idx):
         """Mask each token/word sequentially"""
-
-        assert len(list_vague_idx) == len(list_vague_cands)
-        list_vague_cands.reverse()
-        for i in range(1, len(input_tokens)-1):
-
-            if i-1 not in list_vague_idx: continue
-
-            cand_ids = list_vague_cands.pop()
-            input_ids_new, masked_lm_positions, masked_lm_labels = \
-                self.create_masked_lm_prediction(input_ids, i)
+        list_outputs = []
+        for i in list_vague_idx:
+            input_ids_new, masked_lm_positions = \
+                self.create_masked_lm_prediction(input_ids, i+1)
 
             masked_lm_positions += [0] * (self.max_seq_length - len(masked_lm_positions))
-            cand_ids += [0] * (self.max_seq_length - len(cand_ids))
+            output = (input_ids_new, input_mask, masked_lm_positions)
+            list_outputs.append(output)
 
-            output = (input_ids_new, input_mask, masked_lm_positions, cand_ids)
-
-            yield output
+        return list_outputs
 
     def create_masked_lm_prediction(self, input_ids, mask_position):
         new_input_ids = list(input_ids)
-        candidate_lm_labels = []
-        masked_lm_positions = list(range(mask_position, mask_position))
+        masked_lm_positions = list(range(mask_position, mask_position+1))
         for i in masked_lm_positions:
             new_input_ids[i] = self.MASKED_ID
-            candidate_lm_labels.append(input_ids[i])
 
-        return new_input_ids, masked_lm_positions, candidate_lm_labels
+        return new_input_ids, masked_lm_positions
