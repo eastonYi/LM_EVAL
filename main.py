@@ -42,11 +42,11 @@ flags.DEFINE_integer(
 flags.DEFINE_integer("predict_batch_size", 8, "Total batch size for predict.")
 
 
-def model_builder(features, bert_config, init_checkpoint, multi=False):
-
+def model_builder(bert_config, init_checkpoint, output_logits=False):
     """The `model_fn` for TPUEstimator."""
-
-    input_ids, input_mask, masked_lm_positions, masked_lm_ids = features.get_next()
+    input_ids = tf.placeholder(tf.int32, [None, None], name='input_ids')
+    input_mask = tf.placeholder(tf.int32, [None, None], name='input_mask')
+    masked_lm_positions = tf.placeholder(tf.int32, [None, None], name='masked_lm_positions')
     segment_ids = tf.zeros_like(input_mask)
 
     with tf.device("/gpu:0"):
@@ -57,13 +57,29 @@ def model_builder(features, bert_config, init_checkpoint, multi=False):
                 input_mask=(input_mask),
                 token_type_ids=segment_ids)
 
-        masked_lm_example_loss = get_masked_lm_output(
+        log_probs = get_masked_lm_output(
                 bert_config,
                 model.get_sequence_output(),
                 model.get_embedding_table(),
-                masked_lm_positions,
-                masked_lm_ids,
-                multi)
+                masked_lm_positions)
+
+        if output_logits:
+            inputs = (input_ids, input_mask, masked_lm_positions, masked_lm_positions)
+
+            bacth_size, seq_len = tf.shape(masked_lm_positions)[0], tf.shape(masked_lm_positions)[1]
+            outputs = tf.reshape(
+                log_probs, [bacth_size, seq_len, bert_config.vocab_size])
+
+        else:
+            masked_lm_ids = tf.placeholder(tf.int32, [None, None], name='masked_lm_ids')
+            inputs = (input_ids, input_mask, masked_lm_positions, masked_lm_positions)
+
+            masked_lm_ids = tf.reshape(masked_lm_ids, [-1])
+            one_hot_labels = tf.one_hot(
+                masked_lm_ids, depth=bert_config.vocab_size, dtype=tf.float32)
+            per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
+
+            outputs = tf.reshape(per_example_loss, [-1, tf.shape(masked_lm_positions)[1]])
 
     tvars = tf.trainable_variables()
     initialized_variable_names = {}
@@ -73,11 +89,10 @@ def model_builder(features, bert_config, init_checkpoint, multi=False):
         ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
         tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
-    return masked_lm_example_loss
+    return inputs, outputs
 
 
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
-                         label_ids, multi=False):
+def get_masked_lm_output(bert_config, input_tensor, output_weights, positions):
     """Get loss and log probs for the masked LM."""
     input_tensor = gather_indexes(input_tensor, positions)
 
@@ -93,8 +108,6 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
                             bert_config.initializer_range))
             input_tensor = modeling.layer_norm(input_tensor)
 
-        # The output weights are the same as the input embeddings, but there is
-        # an output-only bias for each token.
         output_bias = tf.get_variable(
                 "output_bias",
                 shape=[bert_config.vocab_size],
@@ -103,17 +116,7 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
         logits = tf.nn.bias_add(logits, output_bias)
         log_probs = tf.nn.log_softmax(logits, axis=-1)
 
-        label_ids = tf.reshape(label_ids, [-1])
-
-        if multi:
-            loss = tf.gather(log_probs[0], label_ids)
-        else:
-            one_hot_labels = tf.one_hot(
-                    label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
-            per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
-            loss = tf.reshape(per_example_loss, [-1, tf.shape(positions)[1]])
-        # TODO: dynamic gather from per_example_loss
-    return loss
+    return log_probs
 
 
 def gather_indexes(sequence_tensor, positions):
@@ -130,12 +133,6 @@ def gather_indexes(sequence_tensor, positions):
                                       [batch_size * seq_length, width])
     output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
     return output_tensor
-
-
-def choose_device(op, device, default_device):
-    if op.type.startswith('Variable'):
-        device = default_device
-    return device
 
 
 def sorting():
@@ -203,58 +200,60 @@ def fixing():
     from data_reader import ASRDecoded
 
     tf.logging.set_verbosity(tf.logging.INFO)
-
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded(FLAGS.ref_file, FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    dataset = ASRDecoded(FLAGS.input_file, FLAGS.ref_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
-    batch_iter = tf.data.Dataset.from_generator(
-        lambda: dataset,
-        (tf.int32,) * 4,
-        (tf.TensorShape([None]),) * 4).cache().batch(FLAGS.predict_batch_size).prefetch(1).make_initializable_iterator()
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
-    prob_op = model_builder(batch_iter, bert_config, FLAGS.init_checkpoint, multi=True)
+    input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint, output_logits=True)
+
+    tf.logging.info("***** Predict results *****")
+    tf.logging.info("Saving results to %s" % FLAGS.output)
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
     config.gpu_options.allow_growth = True
     config.log_device_placement = False
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        sess.run(batch_iter.initializer)
-        try:
-            with open(FLAGS.output, 'w') as fw:
-                tf.logging.info("***** Predict results *****")
-                tf.logging.info("Saving results to %s" % FLAGS.output)
-                list_to_print = []
-                while True:
-                    probs = sess.run(prob_op)
-                    for word_loss in probs:
-                        # start of a sentence
-                        token = dataset.queue_tokens.get()
-                        if token == "[CLS]":
-                            uttid = dataset.queue_uttids.get()
-                            token = dataset.queue_tokens.get()
-                        elif token == "[SEP]":
-                            new_line = uttid + ',{}'.format(' '.join(list_to_print))
-                            fw.write(new_line+'\n')
-                            list_to_print = []
-                            token = dataset.queue_tokens.get()
-                            uttid = dataset.queue_uttids.get()
-                            token = dataset.queue_tokens.get()
-
-                        if len(token) > 1:
+        with open(FLAGS.output, 'w') as fw:
+            for sent in dataset:
+                ref = sent[0]
+                list_decoded_cands = sent[1]
+                if len(sent) == 2:
+                    str_org  = ''.join(i[0] for i in list_decoded_cands)
+                    new_line = 'ref:' + ref + ',asr output:' + str_org
+                elif len(sent) == 3:
+                    list_vagues_inputs = sent[2]
+                    list_fixed = []
+                    list_orgin = []
+                    vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
+                    dict_feed = {input_pl[0]: vague_inputs[0],
+                                 input_pl[1]: vague_inputs[1],
+                                 input_pl[2]: vague_inputs[2]}
+                    log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
+                    iter_log_probs = iter(log_probs)
+                    for cands in list_decoded_cands:
+                        if len(cands) > 1:
                             list_cands = []
-                            for i, token in enumerate(token):
-                                list_cands.append('{}:{:.2f}'.format(token, np.exp(-word_loss)))
-                            list_to_print.append(','.join(list_cands))
+                            log_prob = next(iter_log_probs)
+                            cands_ids = dataset.tokenizer.convert_tokens_to_ids(cands)
+                            for cand, cand_id in zip(cands, cands_ids):
+                                cand_id
+                                list_cands.append('{}:{:.2e}'.format(cand, np.exp(log_prob[0][cand_id])))
+                            list_cands.sort(key=lambda x: float(x.split(':')[1]), reverse=True)
+                            list_fixed.append('(')
+                            list_fixed.append(','.join(list_cands))
+                            list_fixed.append(')')
                         else:
-                            list_to_print.append(token[0])
-
-        except tf.errors.OutOfRangeError:
-            tf.logging.info("***** Finished *****")
+                            list_fixed.append(cands[0])
+                        list_orgin.append(cands[0])
+                    str_org = ''.join(list_orgin)
+                    str_fixed = ''.join(list_fixed)
+                    new_line = 'ref:' + ref + ',asr output:' + str_org + ',lm fixed:' + str_fixed
+                    print(new_line)
+                fw.write(new_line+'\n')
 
 
 if __name__ == "__main__":
