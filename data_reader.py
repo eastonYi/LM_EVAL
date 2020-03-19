@@ -187,14 +187,13 @@ class ASRDecoded(TextDataSet):
 
 
 class ASRDecoded2(ASRDecoded):
-    def __init__(self, data_file, vocab_file, max_seq_length):
-        super().__init__(data_file, None, vocab_file, max_seq_length)
 
     def __iter__(self):
-        with open(self.data_file) as f, open('samples.droped', 'w') as fw:
+        with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
             num_converted = 0
-            for i, line in enumerate(f):
-                idx, res, candidates = line.strip().split(',', maxsplit=2)
+            for i, (line_ref, line) in enumerate(zip(f_ref, f)):
+                _, ref = line_ref.strip().split()
+                _, res, candidates = line.strip().split(',', maxsplit=2)
 
                 # filter samples
                 if not self.check(res, fw):
@@ -204,55 +203,24 @@ class ASRDecoded2(ASRDecoded):
                 list_all_cands = candidates.split()
                 assert len(list_all_cands) == len(tokens)
 
-                try:
-                    list_decoded_cands = [] # [[*], [*], [*:, *:], [*], [*:, *:]]
-                    list_vague_idx = []
-                    list_vague_cands = []
-                    self.tokenizer.convert_tokens_to_ids(tokens)
-                    for j, cands in enumerate(list_all_cands):
-                        list_cands = [] # [*] or [*:, *:]
-                        if len(cands) == 1:
-                            # only one cand
-                            list_decoded_cands.append([cands])
-                        else:
-                            # multi cands
-                            for cand in cands.split(','):
-                                if float(cand.split(':')[1]) > 0.0:
-                                    list_cands.append(cand)
-
-                            if len(list_cands) == 1:
-                                list_cands = list_cands[0].split(':')[0]
-                            elif len(list_cands) > 1:
-                                list_cand_tokens = [i.split(':')[0] for i in list_cands]
-                                cands_ids = self.tokenizer.convert_tokens_to_ids(list_cand_tokens)
-                                list_vague_cands.append(cands_ids)
-                                list_vague_idx.append(j)
-                            else:
-                                list_cands = cands.split(',')
-                            list_decoded_cands.append(list_cands)
-                    list_res_new = [i[0].split(':')[0] for i in list_decoded_cands]
-                    input_tokens = ["[CLS]"] + list_res_new + ["[SEP]"]
-                    len_pad = self.max_seq_length - len(input_tokens)
-                    input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
-                    input_mask = [1] * len(input_tokens) + [0] * len_pad
-                except KeyError:
-                    fw.write(''.join(tokens) + ' OOV \n')
-                    continue
-
                 num_converted += 1
 
                 if i % 1000 == 0:
                     print('processed {} sentences.'.format(i))
-                # print(list_decoded_cands)
-                if list_vague_idx:
-                    list_vague_idx = choose(list_vague_idx, len(list_decoded_cands))
-                if list_vague_idx:
-                    tmp = self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
-                    yield idx, res, list_decoded_cands, (list_vague_idx, tmp)
-                else:
-                    yield idx, res, list_decoded_cands, None
+
+                yield ref, res, list_all_cands
 
         print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
+
+    def gen_input(self, list_decoded_cands, list_vague_idx):
+        assert list_vague_idx
+        list_res_new = [i[0].split(':')[0] for i in list_decoded_cands]
+        input_tokens = ["[CLS]"] + list_res_new + ["[SEP]"]
+        len_pad = self.max_seq_length - len(input_tokens)
+        input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
+        input_mask = [1] * len(input_tokens) + [0] * len_pad
+
+        return self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
 
     def check(self, text, fw):
         # filter samples
@@ -271,9 +239,35 @@ class ASRDecoded2(ASRDecoded):
         return 1
 
 
-def choose(list_idx, length):
+def cand_threshold(list_all_cands):
+    list_all_cands_new = []
+    list_vague_idx = []
+    for i, cands in enumerate(list_all_cands):
+        list_cands = []
+        for cand in cands.split(','):
+            if float(cand.split(':')[1]) > 0.0:
+                list_cands.append(cand)
+        if len(list_cands) == 0:
+            list_cands = cands.split(',')
+            list_vague_idx.append(i)
+        elif len(list_cands) == 1:
+            list_cands = list_cands[0].split(':')[0]
+        else:
+            list_vague_idx.append(i)
+        list_all_cands_new.append(list_cands)
+
+    return list_all_cands_new, list_vague_idx
+
+
+def choose(list_all_cands):
+    list_idx = []
+    anchors = []
     list_to_fix = []
-    anchors = [i for i in range(length) if i not in list_idx]
+    for i, x in enumerate(list_all_cands):
+        if len(x) > 1:
+            list_idx.append(i)
+        else:
+            anchors.append(i)
     for idx in list_idx:
         left_cond = (idx - 1 in anchors) and (idx - 2 in anchors)
         right_cond = (idx + 1 in anchors) and (idx + 2 in anchors)
