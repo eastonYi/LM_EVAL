@@ -229,6 +229,79 @@ def fixing():
                 fw.write(new_line+'\n')
 
 
+def iter_fixing():
+    from data_reader import ASRDecoded2
+
+    tf.logging.set_verbosity(tf.logging.INFO)
+    tf.logging.info("***** Running Fixing *****")
+    tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
+
+    dataset = ASRDecoded2(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
+
+    tf.logging.info("***** Predict results *****")
+    tf.logging.info("Saving results to %s" % FLAGS.output)
+
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    config.gpu_options.allow_growth = True
+    config.log_device_placement = False
+    with tf.train.MonitoredTrainingSession(config=config) as sess:
+        with open(FLAGS.output, 'w') as fw:
+            for sent in dataset:
+                idx = sent[0]
+                list_res = sent[1]
+                list_decoded_cands = sent[2]
+                print(list_decoded_cands)
+
+                # fix
+                if sent[3]:
+                    list_vague_idx, list_vagues_inputs = sent[3]
+                    vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
+                    dict_feed = {input_pl[0]: vague_inputs[0],
+                                 input_pl[1]: vague_inputs[1],
+                                 input_pl[2]: vague_inputs[2]}
+                    log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
+                    iter_log_probs = iter(log_probs)
+                    assert len(log_probs) == len(list_vague_idx)
+                    for i in list_vague_idx:
+                        cands = list_decoded_cands[i]
+                        list_tokens = [i.split(':')[0] for i in cands]
+                        log_prob = next(iter_log_probs)
+                        cands_ids = dataset.tokenizer.convert_tokens_to_ids(list_tokens)
+                        list_cands = []
+                        for cand, cand_id in zip(cands, cands_ids):
+                            list_cands.append((cand, np.exp(log_prob[0][cand_id])))
+                        list_cands.sort(key=lambda x: x[1], reverse=True)
+                        list_decoded_cands[i] = [list_cands[0][0][0]]
+
+                # print
+                list_to_print = []
+                for cands in list_decoded_cands:
+                    if len(cands) > 1:
+                        list_to_print.append(','.join(cands))
+                    else:
+                        list_to_print.append(cands)
+
+                new_line = idx + ',' + ''.join(list_res) + ',' + ' '.join(list_to_print)
+                fw.write(new_line+'\n')
+
+
+def choose(list_idx, length):
+    list_to_fix = []
+    anchors = [i for i in range(length) if i not in list_idx]
+    for idx in list_idx:
+        left_cond = (idx - 1 in anchors) and (idx - 2 in anchors)
+        right_cond = (idx + 1 in anchors) and (idx + 2 in anchors)
+        if left_cond or right_cond:
+            list_to_fix.append(idx)
+
+    return list_to_fix
+
+
 if __name__ == "__main__":
     # main()
-    fixing()
+    # fixing()
+    iter_fixing()

@@ -81,6 +81,7 @@ class TextDataSet():
         return new_input_ids, masked_lm_positions
 
 
+
 def is_subtoken(x):
     return x.startswith("##")
 
@@ -97,18 +98,8 @@ class ASRDecoded(TextDataSet):
                 _, ref = line_ref.strip().split()
                 _, text, candidates = line.strip().split(',', maxsplit=2)
 
-                # filter samples
-                try:
-                    assert re.findall("[\u4e00-\u9fa5]+", text)[0] == text
-                    assert len(self.tokenizer.tokenize(ref)) == len(ref)
-                except (IndexError, AssertionError):
-                    fw.write(ref + ', ' + text + ' subword' + '\n')
-                    continue
-
-                try:
-                    assert len(text) <= self.max_seq_length - 2
-                except AssertionError:
-                    fw.write(ref + ', ' + text + ' too long\n')
+                # check if the sent is too long or contains OOV
+                if not self.check(text, ref, fw):
                     continue
 
                 tokens = list(text)
@@ -176,3 +167,117 @@ class ASRDecoded(TextDataSet):
             new_input_ids[i] = self.MASKED_ID
 
         return new_input_ids, masked_lm_positions
+
+    def check(self, text, ref, fw):
+        # filter samples
+        try:
+            assert re.findall("[\u4e00-\u9fa5]+", text)[0] == text
+            assert len(self.tokenizer.tokenize(ref)) == len(ref)
+        except (IndexError, AssertionError):
+            fw.write(ref + ', ' + text + ' subword' + '\n')
+            return 0
+
+        try:
+            assert len(text) <= self.max_seq_length - 2
+        except AssertionError:
+            fw.write(ref + ', ' + text + ' too long\n')
+            return 0
+
+        return 1
+
+
+class ASRDecoded2(ASRDecoded):
+    def __init__(self, data_file, vocab_file, max_seq_length):
+        super().__init__(data_file, None, vocab_file, max_seq_length)
+
+    def __iter__(self):
+        with open(self.data_file) as f, open('samples.droped', 'w') as fw:
+            num_converted = 0
+            for i, line in enumerate(f):
+                idx, res, candidates = line.strip().split(',', maxsplit=2)
+
+                # filter samples
+                if not self.check(res, fw):
+                    continue
+
+                tokens = list(res)
+                list_all_cands = candidates.split()
+                assert len(list_all_cands) == len(tokens)
+
+                try:
+                    list_decoded_cands = [] # [[*], [*], [*:, *:], [*], [*:, *:]]
+                    list_vague_idx = []
+                    list_vague_cands = []
+                    self.tokenizer.convert_tokens_to_ids(tokens)
+                    for j, cands in enumerate(list_all_cands):
+                        list_cands = [] # [*] or [*:, *:]
+                        if len(cands) == 1:
+                            # only one cand
+                            list_decoded_cands.append([cands])
+                        else:
+                            # multi cands
+                            for cand in cands.split(','):
+                                if float(cand.split(':')[1]) > 0.0:
+                                    list_cands.append(cand)
+
+                            if len(list_cands) == 1:
+                                list_cands = list_cands[0].split(':')[0]
+                            elif len(list_cands) > 1:
+                                list_cand_tokens = [i.split(':')[0] for i in list_cands]
+                                cands_ids = self.tokenizer.convert_tokens_to_ids(list_cand_tokens)
+                                list_vague_cands.append(cands_ids)
+                                list_vague_idx.append(j)
+                            else:
+                                list_cands = cands.split(',')
+                            list_decoded_cands.append(list_cands)
+                    list_res_new = [i[0].split(':')[0] for i in list_decoded_cands]
+                    input_tokens = ["[CLS]"] + list_res_new + ["[SEP]"]
+                    len_pad = self.max_seq_length - len(input_tokens)
+                    input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
+                    input_mask = [1] * len(input_tokens) + [0] * len_pad
+                except KeyError:
+                    fw.write(''.join(tokens) + ' OOV \n')
+                    continue
+
+                num_converted += 1
+
+                if i % 1000 == 0:
+                    print('processed {} sentences.'.format(i))
+                # print(list_decoded_cands)
+                if list_vague_idx:
+                    list_vague_idx = choose(list_vague_idx, len(list_decoded_cands))
+                if list_vague_idx:
+                    tmp = self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
+                    yield idx, res, list_decoded_cands, (list_vague_idx, tmp)
+                else:
+                    yield idx, res, list_decoded_cands, None
+
+        print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
+
+    def check(self, text, fw):
+        # filter samples
+        try:
+            assert re.findall("[\u4e00-\u9fa5]+", text)[0] == text
+        except (IndexError, AssertionError):
+            fw.write(text + ' subword' + '\n')
+            return 0
+
+        try:
+            assert len(text) <= self.max_seq_length - 2
+        except AssertionError:
+            fw.write(text + ' too long\n')
+            return 0
+
+        return 1
+
+
+def choose(list_idx, length):
+    list_to_fix = []
+    anchors = [i for i in range(length) if i not in list_idx]
+    for idx in list_idx:
+        left_cond = (idx - 1 in anchors) and (idx - 2 in anchors)
+        right_cond = (idx + 1 in anchors) and (idx + 2 in anchors)
+        if left_cond or right_cond:
+            list_to_fix.append(idx)
+
+    return list_to_fix
