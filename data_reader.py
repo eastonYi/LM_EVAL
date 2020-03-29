@@ -95,8 +95,10 @@ class ASRDecoded(TextDataSet):
         with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
             num_converted = 0
             for i, (line_ref, line) in enumerate(zip(f_ref, f)):
-                _, ref = line_ref.strip().split()
-                _, text, candidates = line.strip().split(',', maxsplit=2)
+                uttid, ref = line_ref.strip().split()
+                _uttid, text, candidates = line.strip().split(',', maxsplit=2)
+
+                assert uttid == _uttid
 
                 # check if the sent is too long or contains OOV
                 if not self.check(text, ref, fw):
@@ -141,9 +143,9 @@ class ASRDecoded(TextDataSet):
                 # print(list_decoded_cands)
                 if list_vague_idx:
                     tmp = self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
-                    yield ref, list_decoded_cands, tmp
+                    yield uttid, ref, list_decoded_cands, tmp
                 else:
-                    yield ref, list_decoded_cands
+                    yield uttid, ref, list_decoded_cands
 
         print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
 
@@ -187,13 +189,15 @@ class ASRDecoded(TextDataSet):
 
 
 class ASRDecoded2(ASRDecoded):
+    def __init__(self, data_file, vocab_file, max_seq_length):
+        super().__init__(data_file, None, vocab_file, max_seq_length)
 
     def __iter__(self):
-        with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
+        with open(self.data_file) as f, open('samples.droped', 'w') as fw:
             num_converted = 0
-            for i, (line_ref, line) in enumerate(zip(f_ref, f)):
-                _, ref = line_ref.strip().split()
-                _, res, candidates = line.strip().split(',', maxsplit=2)
+            for i, line in enumerate(f):
+                uttid, ref, res, candidates = \
+                    [i.split(':', maxsplit=1)[1] for i in line.strip().split(',', maxsplit=3)]
 
                 # filter samples
                 if not self.check(res, fw):
@@ -208,7 +212,7 @@ class ASRDecoded2(ASRDecoded):
                 if i % 1000 == 0:
                     print('processed {} sentences.'.format(i))
 
-                yield ref, res, list_all_cands
+                yield uttid, ref, res, list_all_cands
 
         print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
 

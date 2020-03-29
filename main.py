@@ -16,10 +16,7 @@ flags.DEFINE_string(
         "input_file", 'test.zh.tsv',
         "The config json file corresponding to the pre-trained BERT model. "
         "This specifies the model architecture.")
-flags.DEFINE_string(
-        "ref_file", 'test.zh.tsv',
-        "The config json file corresponding to the pre-trained BERT model. "
-        "This specifies the model architecture.")
+
 flags.DEFINE_string(
         "output", None,
         "The output directory where the model checkpoints will be written.")
@@ -236,7 +233,7 @@ def iter_fixing():
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded2(FLAGS.input_file, FLAGS.ref_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    dataset = ASRDecoded2(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
     input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
@@ -251,7 +248,7 @@ def iter_fixing():
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(FLAGS.output, 'w') as fw:
             for sent in dataset:
-                idx, list_res, list_all_cands = sent
+                uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_threshold(list_all_cands)
                 print('threshold: ', list_all_cands)
                 try:
@@ -278,17 +275,18 @@ def iter_fixing():
                                 list_all_cands[i] = list_cands[0][0][0]
                         print('iter fixng: ', list_all_cands)
                 except KeyError:
-                    print(''.join(list_res) + ' OOV \n')
-                    list_all_cands = list_res
-                # print
-                list_to_print = []
+                    print(res + ' OOV \n')
+                    list_all_cands = []
+
                 for cands in list_all_cands:
                     if len(cands) > 1:
-                        list_to_print.append(','.join(cands))
-                    else:
-                        list_to_print.append(cands)
+                        print(list_all_cands, ' vague too much\n')
+                        list_all_cands = []
+                        break
+                if not list_all_cands:
+                    continue
 
-                new_line = idx + ',' + ''.join(list_res) + ',' + ' '.join(list_to_print)
+                new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, ''.join(list_all_cands))
                 fw.write(new_line+'\n')
 
 
