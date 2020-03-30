@@ -21,6 +21,10 @@ flags.DEFINE_string(
         "output", None,
         "The output directory where the model checkpoints will be written.")
 
+flags.DEFINE_string(
+        "output_trans", None,
+        "The output directory where the model checkpoints will be written.")
+
 flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
 
@@ -129,7 +133,6 @@ def sorting():
 
     tf.logging.info("***** Running prediction*****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
-
     dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
@@ -246,7 +249,7 @@ def iter_fixing():
     config.gpu_options.allow_growth = True
     config.log_device_placement = False
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(FLAGS.output, 'w') as fw:
+        with open(FLAGS.output, 'w') as fw, open(FLAGS.output_trans, 'w') as fw2:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_threshold(list_all_cands)
@@ -286,8 +289,11 @@ def iter_fixing():
                 if not list_all_cands:
                     continue
 
-                new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, ''.join(list_all_cands))
+                fixed = ''.join(list_all_cands)
+                new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
+                new_line = '{} {}'.format(uttid, fixed)
+                fw2.write(new_line+'\n')
 
 
 if __name__ == "__main__":
