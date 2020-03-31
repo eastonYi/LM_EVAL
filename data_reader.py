@@ -95,9 +95,14 @@ class ASRDecoded(TextDataSet):
         with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
             num_converted = 0
             for i, (line_ref, line) in enumerate(zip(f_ref, f)):
-                _, ref = line_ref.strip().split()
-                _, text, candidates = line.strip().split(',', maxsplit=2)
+                uttid, ref = line_ref.strip().split()
+                _uttid, text, candidates = line.strip().split(',', maxsplit=2)
 
+<<<<<<< HEAD
+=======
+                assert uttid == _uttid
+
+>>>>>>> 54ad7caa1a507757a26b4d58d8b1ce371e3b392d
                 # check if the sent is too long or contains OOV
                 if not self.check(text, ref, fw):
                     continue
@@ -141,9 +146,9 @@ class ASRDecoded(TextDataSet):
                 # print(list_decoded_cands)
                 if list_vague_idx:
                     tmp = self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
-                    yield ref, list_decoded_cands, tmp
+                    yield uttid, ref, list_decoded_cands, tmp
                 else:
-                    yield ref, list_decoded_cands
+                    yield uttid, ref, list_decoded_cands
 
         print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
 
@@ -207,7 +212,11 @@ class ASRDecoded2(ASRDecoded):
 
                 num_converted += 1
 
+<<<<<<< HEAD
                 if i % 10000 == 0:
+=======
+                if i % 1000 == 0:
+>>>>>>> 54ad7caa1a507757a26b4d58d8b1ce371e3b392d
                     print('processed {} sentences.'.format(i))
 
                 yield uttid, ref, res, list_all_cands

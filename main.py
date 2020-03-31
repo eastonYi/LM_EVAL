@@ -237,7 +237,7 @@ def iter_fixing():
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
     input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
-  
+
     tf.logging.info("***** Predict results *****")
     tf.logging.info("Saving results to %s" % FLAGS.output)
 
@@ -273,19 +273,17 @@ def iter_fixing():
                                     list_cands.append((cand, np.exp(log_prob[0][cand_id])))
                                 list_cands.sort(key=lambda x: x[1], reverse=True)
                                 list_all_cands[i] = list_cands[0][0][0]
-#                         print('iter fixng: ', list_all_cands)
+
                 except KeyError:
-#                     print(res + ' OOV \n')
+                    print(res + ' OOV \n')
                     list_all_cands = []
 
                 for cands in list_all_cands:
                     if len(cands) > 1:
-#                         print(list_all_cands, ' vague too much\n')
                         list_all_cands = []
                         break
                 if not list_all_cands:
                     continue
-
                 fixed = ''.join(list_all_cands)
                 new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
