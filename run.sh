@@ -1,9 +1,9 @@
 export BERT_BASE_DIR=/data3/easton/data/pretrain/chinese_L-12_H-768_A-12
 CUDA_VISIBLE_DEVICES=1 python main.py \
-  --input_file=16_beam100-of-900_from_average8ckpts-0.top4.res.part2 \
+  --input_file=16_beam100-of-900_from_average8ckpts-0.top4.res \
   --vocab_file=$BERT_BASE_DIR/vocab.txt \
   --bert_config_file=$BERT_BASE_DIR/bert_config.json \
   --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
   --max_seq_length=30 \
   --predict_batch_size=100 \
-  --output='16_beam100-of-900_from_average8ckpts-0.top4.res.lm-prob.part2'
+  --output='16_beam100-of-900_from_average8ckpts-0.top4.res.lm-prob'
