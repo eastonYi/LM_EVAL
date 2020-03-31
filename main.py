@@ -21,10 +21,6 @@ flags.DEFINE_string(
         "output", None,
         "The output directory where the model checkpoints will be written.")
 
-flags.DEFINE_string(
-        "output_trans", None,
-        "The output directory where the model checkpoints will be written.")
-
 flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
 
@@ -249,7 +245,7 @@ def iter_fixing():
     config.gpu_options.allow_growth = True
     config.log_device_placement = False
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(FLAGS.output, 'w') as fw, open(FLAGS.output_trans, 'w') as fw2:
+        with open(FLAGS.output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_threshold(list_all_cands)
@@ -292,8 +288,6 @@ def iter_fixing():
                 fixed = ''.join(list_all_cands)
                 new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
-                new_line = '{} {}'.format(uttid, fixed)
-                fw2.write(new_line+'\n')
 
 
 if __name__ == "__main__":
