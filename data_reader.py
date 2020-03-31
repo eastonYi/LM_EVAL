@@ -97,7 +97,6 @@ class ASRDecoded(TextDataSet):
             for i, (line_ref, line) in enumerate(zip(f_ref, f)):
                 uttid, ref = line_ref.strip().split()
                 _uttid, text, candidates = line.strip().split(',', maxsplit=2)
-
                 assert uttid == _uttid
 
                 # check if the sent is too long or contains OOV
@@ -208,7 +207,6 @@ class ASRDecoded2(ASRDecoded):
                 assert len(list_all_cands) == len(tokens)
 
                 num_converted += 1
-
                 if i % 1000 == 0:
                     print('processed {} sentences.'.format(i))
 

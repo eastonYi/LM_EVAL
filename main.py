@@ -249,7 +249,7 @@ def iter_fixing():
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_threshold(list_all_cands)
-                print('threshold: ', list_all_cands)
+#                 print('threshold: ', list_all_cands)
                 try:
                     while list_vague_idx:
                         list_vague_idx = choose(list_all_cands)
@@ -272,19 +272,21 @@ def iter_fixing():
                                     list_cands.append((cand, np.exp(log_prob[0][cand_id])))
                                 list_cands.sort(key=lambda x: x[1], reverse=True)
                                 list_all_cands[i] = list_cands[0][0][0]
-                        print('iter fixng: ', list_all_cands)
+
                 except KeyError:
                     print(res + ' OOV \n')
                     list_all_cands = []
 
                 for cands in list_all_cands:
                     if len(cands) > 1:
-                        print(list_all_cands, ' vague too much\n')
                         list_all_cands = []
                         break
                 if not list_all_cands:
                     continue
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3750eebb63e5c7cea7adc6f8f06bcc6b48896826
                 fixed = ''.join(list_all_cands)
                 new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
