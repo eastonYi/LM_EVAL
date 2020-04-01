@@ -275,6 +275,7 @@ def iter_fixing():
 
                 except KeyError:
                     print(res + ' OOV \n')
+                    import pdb; pdb.set_trace()
                     list_all_cands = []
 
                 for cands in list_all_cands:
@@ -283,10 +284,7 @@ def iter_fixing():
                         break
                 if not list_all_cands:
                     continue
-<<<<<<< HEAD
 
-=======
->>>>>>> 3750eebb63e5c7cea7adc6f8f06bcc6b48896826
                 fixed = ''.join(list_all_cands)
                 new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
