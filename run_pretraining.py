@@ -75,12 +75,6 @@ flags.DEFINE_integer("iterations_per_loop", 1000,
 
 flags.DEFINE_integer("max_eval_steps", 100, "Maximum number of eval steps.")
 
-flags.DEFINE_string(
-        "gcp_project", None,
-        "[Optional] Project name for the Cloud TPU-enabled project. If not "
-        "specified, we will attempt to automatically detect the GCE project from "
-        "metadata.")
-
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate, num_train_steps,
                      num_warmup_steps, use_one_hot_embeddings):
@@ -448,4 +442,5 @@ if __name__ == "__main__":
     flags.mark_flag_as_required("input_file")
     flags.mark_flag_as_required("bert_config_file")
     flags.mark_flag_as_required("output_dir")
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     tf.app.run()

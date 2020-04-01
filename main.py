@@ -226,7 +226,7 @@ def fixing():
 
 
 def iter_fixing():
-    from data_reader import ASRDecoded2, cand_threshold, choose
+    from data_reader import ASRDecoded2, cand_filter, choose
 
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info("***** Running Fixing *****")
@@ -248,7 +248,7 @@ def iter_fixing():
         with open(FLAGS.output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
-                list_all_cands, list_vague_idx = cand_threshold(list_all_cands)
+                list_all_cands, list_vague_idx = cand_filter(list_all_cands)
 #                 print('threshold: ', list_all_cands)
                 try:
                     while list_vague_idx:
