@@ -75,36 +75,9 @@ flags.DEFINE_integer("iterations_per_loop", 1000,
 
 flags.DEFINE_integer("max_eval_steps", 100, "Maximum number of eval steps.")
 
-flags.DEFINE_bool("use_tpu", False, "Whether to use TPU or GPU/CPU.")
 
-flags.DEFINE_string(
-        "tpu_name", None,
-        "The Cloud TPU to use for training. This should be either the name "
-        "used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 "
-        "url.")
-
-flags.DEFINE_string(
-        "tpu_zone", None,
-        "[Optional] GCE zone where the Cloud TPU is located in. If not "
-        "specified, we will attempt to automatically detect the GCE project from "
-        "metadata.")
-
-flags.DEFINE_string(
-        "gcp_project", None,
-        "[Optional] Project name for the Cloud TPU-enabled project. If not "
-        "specified, we will attempt to automatically detect the GCE project from "
-        "metadata.")
-
-flags.DEFINE_string("master", None, "[Optional] TensorFlow master URL.")
-
-flags.DEFINE_integer(
-        "num_tpu_cores", 8,
-        "Only used if `use_tpu` is True. Total number of TPU cores to use.")
-
-
-def model_fn_builder(bert_config, init_checkpoint, learning_rate,
-                                         num_train_steps, num_warmup_steps,
-                                         use_one_hot_embeddings):
+def model_fn_builder(bert_config, init_checkpoint, learning_rate, num_train_steps,
+                     num_warmup_steps, use_one_hot_embeddings):
     """Returns `model_fn` closure for TPUEstimator."""
 
     def model_fn(features, labels, mode, params):    # pylint: disable=unused-argument
@@ -409,7 +382,7 @@ def main(_):
 
     run_config = tf.contrib.tpu.RunConfig(
             cluster=None,
-            master=FLAGS.master,
+            master=None,
             model_dir=FLAGS.output_dir,
             save_checkpoints_steps=FLAGS.save_checkpoints_steps,
             tpu_config=tf.contrib.tpu.TPUConfig(
@@ -423,13 +396,12 @@ def main(_):
             learning_rate=FLAGS.learning_rate,
             num_train_steps=FLAGS.num_train_steps,
             num_warmup_steps=FLAGS.num_warmup_steps,
-            use_tpu=False,
             use_one_hot_embeddings=False)
 
     # If TPU is not available, this will fall back to normal Estimator on CPU
     # or GPU.
     estimator = tf.contrib.tpu.TPUEstimator(
-            use_tpu=FLAGS.use_tpu,
+            use_tpu=False,
             model_fn=model_fn,
             config=run_config,
             train_batch_size=FLAGS.train_batch_size,
@@ -470,4 +442,5 @@ if __name__ == "__main__":
     flags.mark_flag_as_required("input_file")
     flags.mark_flag_as_required("bert_config_file")
     flags.mark_flag_as_required("output_dir")
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     tf.app.run()

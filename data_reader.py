@@ -204,6 +204,7 @@ class ASRDecoded2(ASRDecoded):
 
                 tokens = list(res)
                 list_all_cands = candidates.split()
+
                 assert len(list_all_cands) == len(tokens)
 
                 num_converted += 1
@@ -241,14 +242,18 @@ class ASRDecoded2(ASRDecoded):
         return 1
 
 
-def cand_threshold(list_all_cands):
+def cand_filter(list_all_cands):
     list_all_cands_new = []
     list_vague_idx = []
     for i, cands in enumerate(list_all_cands):
         list_cands = []
         for cand in cands.split(','):
-            if float(cand.split(':')[1]) > 0.0:
-                list_cands.append(cand)
+            if float(cand.split(':')[1]) == 0.0:
+                continue
+            if re.findall('[a-zA-Z]', cand.split(':')[0]):
+                continue
+            list_cands.append(cand)
+
         if len(list_cands) == 0:
             list_cands = cands.split(',')
             list_vague_idx.append(i)
