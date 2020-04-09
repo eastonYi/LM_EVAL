@@ -202,7 +202,7 @@ class ASRDecoded2(ASRDecoded):
                 if not self.check(res, fw):
                     continue
 
-                tokens = list(res)
+                tokens = res.split()
                 list_all_cands = candidates.split()
 
                 assert len(list_all_cands) == len(tokens)
@@ -228,7 +228,7 @@ class ASRDecoded2(ASRDecoded):
     def check(self, text, fw):
         # filter samples
         try:
-            assert re.findall("[\u4e00-\u9fa5]+", text)[0] == text
+            assert re.findall("[\u4e00-\u9fa5 ]+", text)[0] == text
         except (IndexError, AssertionError):
             fw.write(text + ' subword' + '\n')
             return 0

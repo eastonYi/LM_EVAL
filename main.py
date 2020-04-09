@@ -24,6 +24,9 @@ flags.DEFINE_string(
 flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
 
+flags.DEFINE_string("mode", None,
+                    "Type of mode: iterfix, sorting")
+
 ## Other parameters
 
 flags.DEFINE_string(
@@ -285,7 +288,7 @@ def iter_fixing():
                 if not list_all_cands:
                     continue
 
-                fixed = ''.join(list_all_cands)
+                fixed = ' '.join(list_all_cands)
                 new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
 

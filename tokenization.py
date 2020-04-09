@@ -68,6 +68,7 @@ def convert_by_vocab(vocab, items):
 def convert_tokens_to_ids(vocab, tokens):
     return convert_by_vocab(vocab, tokens)
 
+
 def convert_ids_to_tokens(inv_vocab, ids):
     return convert_by_vocab(inv_vocab, ids)
 
