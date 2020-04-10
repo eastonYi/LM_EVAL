@@ -123,7 +123,7 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def sorting():
+def rerank():
     from data_reader import TextDataSet
 
     tf.logging.set_verbosity(tf.logging.INFO)
@@ -169,7 +169,7 @@ def sorting():
             tf.logging.info("***** Finished *****")
 
 
-def fixing():
+def fix():
     from data_reader import ASRDecoded
 
     tf.logging.set_verbosity(tf.logging.INFO)
@@ -228,14 +228,19 @@ def fixing():
                 fw.write(new_line+'\n')
 
 
-def iter_fixing():
-    from data_reader import ASRDecoded2, cand_filter, choose
+def iter_fix(is_cn):
+    from data_reader import cand_filter, choose
 
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info("***** Running Fixing *****")
     tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded2(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    if is_cn:
+        from data_reader import ASRDecoded_iter_CN
+        dataset = ASRDecoded_iter_CN(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    else:
+        from data_reader import ASRDecoded_iter_EN
+        dataset = ASRDecoded_iter_EN(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
     input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
@@ -251,8 +256,7 @@ def iter_fixing():
         with open(FLAGS.output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
-                list_all_cands, list_vague_idx = cand_filter(list_all_cands)
-#                 print('threshold: ', list_all_cands)
+                list_all_cands, list_vague_idx = cand_filter(list_all_cands, is_cn=is_cn)
                 try:
                     while list_vague_idx:
                         list_vague_idx = choose(list_all_cands)
@@ -277,8 +281,7 @@ def iter_fixing():
                                 list_all_cands[i] = list_cands[0][0][0]
 
                 except KeyError:
-                    print(res + ' OOV \n')
-                    import pdb; pdb.set_trace()
+                    print(res, list_all_cands, 'cand OOV')
                     list_all_cands = []
 
                 for cands in list_all_cands:
@@ -294,6 +297,26 @@ def iter_fixing():
 
 
 if __name__ == "__main__":
-    # main()
-    # fixing()
-    iter_fixing()
+    import logging
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser()
+    parser.add_argument('-m', type=str, dest='mode')
+    parser.add_argument('--input', type=str, dest='input_file')
+    parser.add_argument('--output', type=str, dest='new_file')
+    parser.add_argument('--trans', type=str, dest='trans')
+    parser.add_argument('--is_cn', action='store_true')
+    parser.add_argument('--ref_file', type=str, dest='ref_file', default=None)
+    parser.add_argument('--ref_len', type=str, dest='ref_len', default=None)
+    args = parser.parse_args()
+    # Read config
+    logging.basicConfig(level=logging.INFO)
+
+    if args.mode == 'rerank':
+        rerank(args.input_file, args.ref_file, args.new_file)
+    elif args.mode == 'fix':
+        fix(args.input_file, args.new_file)
+    elif args.mode == 'iter_fix':
+        iter_fix(args.input_file, args.new_file, args.is_cn)
+
+    logging.info("Done")

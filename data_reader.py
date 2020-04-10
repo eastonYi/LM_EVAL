@@ -41,7 +41,7 @@ class TextDataSet():
                     input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens) + [0] * len_pad
                     input_mask = [1] * len(input_tokens) + [0] * len_pad
                 except KeyError:
-                    print(text, '. OOV')
+                    print(text, ' OOV')
                     continue
 
                 if i % 1000 == 0:
@@ -187,25 +187,34 @@ class ASRDecoded(TextDataSet):
         return 1
 
 
-class ASRDecoded2(ASRDecoded):
+class ASRDecoded_iter_CN(ASRDecoded):
     def __init__(self, data_file, vocab_file, max_seq_length):
         super().__init__(data_file, None, vocab_file, max_seq_length)
 
     def __iter__(self):
-        with open(self.data_file) as f, open('samples.droped', 'w') as fw:
+        with open(self.data_file) as f, open('samples_cn.droped', 'w') as fw:
             num_converted = 0
             for i, line in enumerate(f):
-                uttid, ref, res, candidates = \
-                    [i.split(':', maxsplit=1)[1] for i in line.strip().split(',', maxsplit=3)]
+                try:
+                    uttid, ref, res, candidates = \
+                        [i.split(':', maxsplit=1)[1] for i in line.strip().split(',', maxsplit=3)]
+                except ValueError:
+                    fw.write(line + '. format error')
+                    continue
 
                 # filter samples
-                if not self.check(res, fw):
+                if not self.all_cn(res, fw):
+                    fw.write(line + '. res contains tokens other than Chinese')
                     continue
 
                 tokens = res.split()
                 list_all_cands = candidates.split()
 
-                assert len(list_all_cands) == len(tokens)
+                try:
+                    assert len(list_all_cands) == len(tokens)
+                except AssertionError:
+                    fw.write(line + '. length of res is not equal to cands')
+                    continue
 
                 num_converted += 1
                 if i % 1000 == 0:
@@ -225,7 +234,7 @@ class ASRDecoded2(ASRDecoded):
 
         return self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
 
-    def check(self, text, fw):
+    def all_cn(self, text, fw):
         # filter samples
         try:
             assert re.findall("[\u4e00-\u9fa5 ]+", text)[0] == text
@@ -242,7 +251,7 @@ class ASRDecoded2(ASRDecoded):
         return 1
 
 
-def cand_filter(list_all_cands):
+def cand_filter(list_all_cands, is_cn=True):
     list_all_cands_new = []
     list_vague_idx = []
     for i, cands in enumerate(list_all_cands):
@@ -250,7 +259,7 @@ def cand_filter(list_all_cands):
         for cand in cands.split(','):
             if float(cand.split(':')[1]) == 0.0:
                 continue
-            if re.findall('[a-zA-Z]', cand.split(':')[0]):
+            if is_cn and re.findall('[a-zA-Z]', cand.split(':')[0]):
                 continue
             list_cands.append(cand)
 
