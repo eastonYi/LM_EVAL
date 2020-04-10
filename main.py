@@ -4,42 +4,8 @@ import tensorflow as tf
 
 import modeling
 
-flags = tf.flags
-FLAGS = flags.FLAGS
-
-flags.DEFINE_string(
-        "bert_config_file", None,
-        "The config json file corresponding to the pre-trained BERT model. "
-        "This specifies the model architecture.")
-
-flags.DEFINE_string(
-        "input_file", 'test.zh.tsv',
-        "The config json file corresponding to the pre-trained BERT model. "
-        "This specifies the model architecture.")
-
-flags.DEFINE_string(
-        "output", None,
-        "The output directory where the model checkpoints will be written.")
-
-flags.DEFINE_string("vocab_file", None,
-                    "The vocabulary file that the BERT model was trained on.")
-
-flags.DEFINE_string("mode", None,
-                    "Type of mode: iterfix, sorting")
-
-## Other parameters
-
-flags.DEFINE_string(
-        "init_checkpoint", None,
-        "Initial checkpoint (usually from a pre-trained BERT model).")
-
-flags.DEFINE_integer(
-        "max_seq_length", 30,
-        "The maximum total input sequence length after WordPiece tokenization. "
-        "Sequences longer than this will be truncated, and sequences shorter "
-        "than this will be padded.")
-
-flags.DEFINE_integer("predict_batch_size", 8, "Total batch size for predict.")
+max_seq_length = 30
+predict_batch_size = 8
 
 
 def model_builder(bert_config, init_checkpoint):
@@ -123,27 +89,36 @@ def gather_indexes(sequence_tensor, positions):
     return output_tensor
 
 
-def rerank():
-    from data_reader import TextDataSet
+def load_bert_model(bert_dir):
+    bert_config = bert_dir+'/bert_config.json'
+    bert_model = bert_dir + '/bert_model.ckpt'
+    vocab = bert_dir + '/vocab.txt'
 
     tf.logging.set_verbosity(tf.logging.INFO)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-
+    bert_config = modeling.BertConfig.from_json_file(bert_config)
     tf.logging.info("***** Running prediction*****")
-    tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
-    dataset = TextDataSet(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    tf.logging.info("    Batch size = %d", predict_batch_size)
 
-    input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
+    input_pl, log_prob_op = model_builder(bert_config, bert_model)
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
     config.gpu_options.allow_growth = True
     config.log_device_placement = False
+
+    return vocab, input_pl, log_prob_op, config
+
+
+def rerank(bert_dir, input, output):
+    from data_reader import TextDataSet
+
+    dataset = TextDataSet(input, bert_dir + '/vocab.txt', max_seq_length)
+
+    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
+
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(FLAGS.output, 'w') as fw:
-            tf.logging.info("***** Predict results *****")
-            tf.logging.info("Saving results to %s" % FLAGS.output)
+        with open(output, 'w') as fw:
             for uttid, sent, sent_inputs in dataset:
                 list_scores = []
 
@@ -169,27 +144,18 @@ def rerank():
             tf.logging.info("***** Finished *****")
 
 
-def fix():
+def fix(bert_dir, input, ref_file, output):
     from data_reader import ASRDecoded
 
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info("***** Running Fixing *****")
-    tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
 
-    dataset = ASRDecoded(FLAGS.input_file, FLAGS.ref_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-    input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
+    dataset = ASRDecoded(input, ref_file, vocab, max_seq_length)
 
-    tf.logging.info("***** Predict results *****")
-    tf.logging.info("Saving results to %s" % FLAGS.output)
-
-    config = tf.ConfigProto()
-    config.allow_soft_placement = True
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = False
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(FLAGS.output, 'w') as fw:
+        with open(output, 'w') as fw:
             for sent in dataset:
                 ref = sent[0]
                 list_decoded_cands = sent[1]
@@ -228,32 +194,20 @@ def fix():
                 fw.write(new_line+'\n')
 
 
-def iter_fix(is_cn):
+def iter_fix(bert_dir, input, output, is_cn):
     from data_reader import cand_filter, choose
 
-    tf.logging.set_verbosity(tf.logging.INFO)
-    tf.logging.info("***** Running Fixing *****")
-    tf.logging.info("    Batch size = %d", FLAGS.predict_batch_size)
+    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
 
     if is_cn:
         from data_reader import ASRDecoded_iter_CN
-        dataset = ASRDecoded_iter_CN(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+        dataset = ASRDecoded_iter_CN(input, vocab, max_seq_length)
     else:
         from data_reader import ASRDecoded_iter_EN
-        dataset = ASRDecoded_iter_EN(FLAGS.input_file, FLAGS.vocab_file, FLAGS.max_seq_length)
+        dataset = ASRDecoded_iter_EN(input, vocab, max_seq_length)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-    input_pl, log_prob_op = model_builder(bert_config, FLAGS.init_checkpoint)
-
-    tf.logging.info("***** Predict results *****")
-    tf.logging.info("Saving results to %s" % FLAGS.output)
-
-    config = tf.ConfigProto()
-    config.allow_soft_placement = True
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = False
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(FLAGS.output, 'w') as fw:
+        with open(output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_filter(list_all_cands, is_cn=is_cn)
@@ -304,19 +258,20 @@ if __name__ == "__main__":
     parser.add_argument('-m', type=str, dest='mode')
     parser.add_argument('--input', type=str, dest='input_file')
     parser.add_argument('--output', type=str, dest='new_file')
+    parser.add_argument('--bert_dir', type=str, dest='bert_dir')
     parser.add_argument('--trans', type=str, dest='trans')
     parser.add_argument('--is_cn', action='store_true')
-    parser.add_argument('--ref_file', type=str, dest='ref_file', default=None)
-    parser.add_argument('--ref_len', type=str, dest='ref_len', default=None)
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)
 
+    tf.logging.info("Saving results to %s" % args.output)
+
     if args.mode == 'rerank':
-        rerank(args.input_file, args.ref_file, args.new_file)
+        rerank(args.bert_dir, args.input_file, args.new_file)
     elif args.mode == 'fix':
-        fix(args.input_file, args.new_file)
+        fix(args.bert_dir, args.input_file, args.new_file)
     elif args.mode == 'iter_fix':
-        iter_fix(args.input_file, args.new_file, args.is_cn)
+        iter_fix(args.bert_dir, args.input_file, args.new_file, args.is_cn)
 
     logging.info("Done")
