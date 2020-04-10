@@ -265,7 +265,7 @@ if __name__ == "__main__":
     # Read config
     logging.basicConfig(level=logging.INFO)
 
-    tf.logging.info("Saving results to %s" % args.output)
+    tf.logging.info("Saving results to %s" % args.new_file)
 
     if args.mode == 'rerank':
         rerank(args.bert_dir, args.input_file, args.new_file)
