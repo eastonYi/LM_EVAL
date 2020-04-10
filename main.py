@@ -260,7 +260,7 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, dest='new_file')
     parser.add_argument('--bert_dir', type=str, dest='bert_dir')
     parser.add_argument('--trans', type=str, dest='trans')
-    parser.add_argument('--is_cn', action='store_true')
+    parser.add_argument('--is_cn', action='store_true', default=False)
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)
