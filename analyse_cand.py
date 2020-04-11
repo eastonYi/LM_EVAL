@@ -1,4 +1,5 @@
 import editdistance as ed
+from pypinyin import pinyin, lazy_pinyin, Style
 
 
 def fixed_cer(fixed_file):
@@ -73,6 +74,11 @@ def cand_filter(list_cands, threshold=0.0):
     for cand in list_cands:
         if float(cand.split(':')[1]) > threshold:
             list_tokens.append(cand.split(':')[0])
+
+    if len(list_cands) > 1:
+        list_pinyin = [pinyin(token) for token in list_tokens]
+        max(list_tokens, key=list_pinyin.count)
+        import pdb; pdb.set_trace()
 
     if not list_tokens:
         list_tokens.append(list_cands[0].split(':')[0])

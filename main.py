@@ -210,7 +210,8 @@ def iter_fix(bert_dir, input, output, is_cn):
         with open(output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
-                list_all_cands, list_vague_idx = cand_filter(list_all_cands, is_cn=is_cn)
+                list_all_cands, list_vague_idx = cand_filter(
+                    list_all_cands, threshold=0.002, is_cn=is_cn)
                 try:
                     while list_vague_idx:
                         list_vague_idx = choose(list_all_cands)

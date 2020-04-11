@@ -251,13 +251,13 @@ class ASRDecoded_iter_CN(ASRDecoded):
         return 1
 
 
-def cand_filter(list_all_cands, is_cn=True):
+def cand_filter(list_all_cands, threshold=0.0, is_cn=True):
     list_all_cands_new = []
     list_vague_idx = []
     for i, cands in enumerate(list_all_cands):
         list_cands = []
         for cand in cands.split(','):
-            if float(cand.split(':')[1]) == 0.0:
+            if float(cand.split(':')[1]) <= threshold:
                 continue
             if is_cn and re.findall('[a-zA-Z]', cand.split(':')[0]):
                 continue
