@@ -75,15 +75,23 @@ def cand_filter(list_cands, threshold=0.0):
         if float(cand.split(':')[1]) > threshold:
             list_tokens.append(cand.split(':')[0])
 
-    if len(list_cands) > 1:
-        list_pinyin = [pinyin(token) for token in list_tokens]
-        max(list_tokens, key=list_pinyin.count)
-        import pdb; pdb.set_trace()
+    if len(list_tokens) > 1:
+        list_pinyin = [pinyin(token)[0][0] for token in list_tokens]
+        list_tokens = tokens_mode_by_pinyin(list_pinyin, list_tokens)
 
     if not list_tokens:
         list_tokens.append(list_cands[0].split(':')[0])
 
     return list_tokens
+
+
+def tokens_mode_by_pinyin(list_pinyin, list_tokens):
+    pinyin_mode = max(list_pinyin, key=list_pinyin.count)
+    _list = []
+    for p, token in zip(list_pinyin, list_tokens):
+        if p == pinyin_mode:
+            _list.append(token)
+    return _list
 
 
 if __name__ == "__main__":
