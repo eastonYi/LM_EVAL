@@ -72,8 +72,12 @@ def cand_filter(list_cands, threshold=0.0):
     list_tokens= []
 
     for cand in list_cands:
-        if float(cand.split(':')[1]) > threshold:
-            list_tokens.append(cand.split(':')[0])
+        try:
+            token, p = cand.split(':')
+        except:
+            continue
+        if float(p) > threshold:
+            list_tokens.append(token)
 
     if len(list_tokens) > 1:
         list_pinyin = [pinyin(token)[0][0] for token in list_tokens]
