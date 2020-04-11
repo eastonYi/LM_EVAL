@@ -57,7 +57,7 @@ def cand_cer_upper(cand_file, output_file, threshold):
     cer_res = batch_res_dist / batch_len
     cer_fixed = batch_fixed_dist / batch_len
 
-    print('cer_res: {:.3f}; cer_fixed: {:.3f};  not euqal:{}/{}'.format(
+    print('res CER: {:.3f}; ref-fixed CER: {:.3f};  not euqal:{}/{}'.format(
            cer_res, cer_fixed, num_not_equal, i))
 
 
