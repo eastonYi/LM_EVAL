@@ -5,14 +5,19 @@ def fixed_cer(fixed_file):
     batch_res_dist = 0
     batch_fixed_dist = 0
     batch_len = 0
+    num_not_equal = 0
     with open (fixed_file) as f:
-        for line in f:
+        for i, line in enumerate(f):
             try:
                 _, ref, res, fixed = line.strip().split(',', 3)
                 ref = ref.split(':')[1].split()
                 res = res.split(':')[1].split()
                 fixed = fixed.split(':', 1)[1].split()
+                if len(ref) != len(res):
+                    num_not_equal += 1
+                    continue
             except:
+                print(line)
                 continue
             batch_res_dist += ed.eval(res, ref)
             batch_fixed_dist += ed.eval(fixed, ref)
@@ -21,7 +26,8 @@ def fixed_cer(fixed_file):
     cer_res = batch_res_dist / batch_len
     cer_fixed = batch_fixed_dist / batch_len
 
-    print('res CER: {:.3f}, fixed CER: {:.3f}'.format(cer_res, cer_fixed))
+    print('res CER: {:.3f}; fixed CER: {:.3f}; not euqal:{}/{}'.format(
+            cer_res, cer_fixed, num_not_equal, i))
 
 
 def cand_cer_upper(cand_file, output_file, threshold):
@@ -57,7 +63,7 @@ def cand_cer_upper(cand_file, output_file, threshold):
     cer_res = batch_res_dist / batch_len
     cer_fixed = batch_fixed_dist / batch_len
 
-    print('res CER: {:.3f}; ref-fixed CER: {:.3f};  not euqal:{}/{}'.format(
+    print('res CER: {:.3f}; ref-fixed CER: {:.3f}; not euqal:{}/{}'.format(
            cer_res, cer_fixed, num_not_equal, i))
 
 
