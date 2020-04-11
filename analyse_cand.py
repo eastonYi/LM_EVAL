@@ -24,7 +24,7 @@ def fixed_cer(fixed_file):
     print(cer_res, cer_fixed)
 
 
-def cand_cer_upper(cand_file, output_file):
+def cand_cer_upper(cand_file, output_file, threshold):
     batch_res_dist = 0
     batch_fixed_dist = 0
     batch_len = 0
@@ -40,7 +40,7 @@ def cand_cer_upper(cand_file, output_file):
             ref_fixed = []
             if len(ref) == len(res):
                 for token, cands in zip(ref, all_cands):
-                    cand_tokens = cand_filter(cands.split(','))
+                    cand_tokens = cand_filter(cands.split(','), threshold)
                     if token in cand_tokens:
                         ref_fixed.append(token)
                     else:
@@ -84,6 +84,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == 'cand':
-        cand_cer_upper(args.input, args.output)
+        cand_cer_upper(args.input, args.output, args.threshold)
     elif args.mode == 'fixed':
-        fixed_cer(args.input, args.threshold)
+        fixed_cer(args.input)
