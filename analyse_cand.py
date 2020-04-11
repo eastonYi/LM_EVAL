@@ -72,11 +72,8 @@ def cand_filter(list_cands, threshold=0.0):
     list_tokens= []
 
     for cand in list_cands:
-        try:
-            token, p = cand.split(':')
-        except:
-            continue
-        if float(p) > threshold:
+        token, p = cand.split(':')
+        if len(token)==1 and float(p) > threshold:
             list_tokens.append(token)
 
     if len(list_tokens) > 1:
