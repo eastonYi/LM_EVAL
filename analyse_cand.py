@@ -49,7 +49,7 @@ def cand_cer_upper(cand_file, output_file, threshold):
 
                 fw.write(uttid + ' ' + new_line + '\n')
                 batch_res_dist += ed.eval(res, ref)
-                batch_fixed_dist += ed.eval(new_line, ref)
+                batch_fixed_dist += ed.eval(ref_fixed, ref)
                 batch_len += len(ref)
             else:
                 num_not_equal += 1
