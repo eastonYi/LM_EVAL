@@ -79,11 +79,11 @@ def cand_filter(list_cands, threshold=0.0):
         if len(token)==1 and float(p) > threshold:
             list_tokens.append(token)
 
-    if len(list_tokens) > 1:
-        # list_pinyin = [pinyin(token)[0][0] for token in list_tokens]
-        # list_pinyin = [lazy_pinyin(token)[0] for token in list_tokens]
-        list_pinyin = [pinyin(token, style=Style.FIRST_LETTER)[0][0] for token in list_tokens]
-        list_tokens = tokens_mode_by_pinyin(list_pinyin, list_tokens)
+    # if len(list_tokens) > 1:
+    #     # list_pinyin = [pinyin(token)[0][0] for token in list_tokens]
+    #     # list_pinyin = [lazy_pinyin(token)[0] for token in list_tokens]
+    #     list_pinyin = [pinyin(token, style=Style.FIRST_LETTER)[0][0] for token in list_tokens]
+    #     list_tokens = tokens_mode_by_pinyin(list_pinyin, list_tokens)
 
     if not list_tokens:
         list_tokens.append(list_cands[0].split(':')[0])
