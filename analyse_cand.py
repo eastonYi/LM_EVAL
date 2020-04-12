@@ -31,12 +31,12 @@ def fixed_cer(fixed_file):
             cer_res, cer_fixed, num_not_equal, i))
 
 
-def cand_cer_upper(cand_file, ref_fixed, res_len_filter, threshold):
+def cand_cer_upper(cand_file, ref_fixed, threshold):
     batch_res_dist = 0
     batch_fixed_dist = 0
     batch_len = 0
     num_not_equal = 0
-    with open(cand_file) as f, open(ref_fixed, 'w') as fw, open(res_len_filter, 'w') as fw2:
+    with open(cand_file) as f, open(ref_fixed, 'w') as fw:
         for i, line in enumerate(f):
             uttid, ref, res, all_cands = line.strip().split(',', 3)
             uttid = uttid.split(':')[1]
@@ -53,10 +53,8 @@ def cand_cer_upper(cand_file, ref_fixed, res_len_filter, threshold):
                     else:
                         ref_fixed.append(cand_tokens[0])
                 new_line = ' '.join(ref_fixed)
-                new_line2 = ' '.join(res)
 
                 fw.write(uttid + ' ' + new_line + '\n')
-                fw2.write(uttid + ' ' + new_line2 + '\n')
 
                 batch_res_dist += ed.eval(res, ref)
                 batch_fixed_dist += ed.eval(ref_fixed, ref)
