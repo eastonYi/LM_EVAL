@@ -31,12 +31,12 @@ def fixed_cer(fixed_file):
             cer_res, cer_fixed, num_not_equal, i))
 
 
-def cand_cer_upper(cand_file, output_file, threshold):
+def cand_cer_upper(cand_file, ref_fixed, res_len_filter, threshold):
     batch_res_dist = 0
     batch_fixed_dist = 0
     batch_len = 0
     num_not_equal = 0
-    with open(cand_file) as f, open(output_file, 'w') as fw:
+    with open(cand_file) as f, open(ref_fixed, 'w') as fw, open(res_len_filter, 'w') as fw2:
         for i, line in enumerate(f):
             uttid, ref, res, all_cands = line.strip().split(',', 3)
             uttid = uttid.split(':')[1]
@@ -53,8 +53,11 @@ def cand_cer_upper(cand_file, output_file, threshold):
                     else:
                         ref_fixed.append(cand_tokens[0])
                 new_line = ' '.join(ref_fixed)
+                new_line2 = ' '.join(res)
 
                 fw.write(uttid + ' ' + new_line + '\n')
+                fw2.write(uttid + ' ' + new_line2 + '\n')
+
                 batch_res_dist += ed.eval(res, ref)
                 batch_fixed_dist += ed.eval(ref_fixed, ref)
                 batch_len += len(ref)
@@ -104,10 +107,11 @@ if __name__ == "__main__":
     parser.add_argument('-m', type=str, dest='mode')
     parser.add_argument('--input', type=str, dest='input')
     parser.add_argument('--output', type=str, dest='output')
+    parser.add_argument('--output2', type=str, dest='output2')
     parser.add_argument('--threshold', type=float, dest='threshold', default=0.0)
     args = parser.parse_args()
 
     if args.mode == 'cand':
-        cand_cer_upper(args.input, args.output, args.threshold)
+        cand_cer_upper(args.input, args.output, args.output2, args.threshold)
     elif args.mode == 'fixed':
         fixed_cer(args.input)
