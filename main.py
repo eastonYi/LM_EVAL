@@ -195,16 +195,11 @@ def fix(bert_dir, input, ref_file, output):
 
 
 def iter_fix(bert_dir, input, output, is_cn):
-    from data_reader import cand_filter, choose
+    from data_reader import cand_filter, choose, ASRDecoded_iter
 
     vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
 
-    if is_cn:
-        from data_reader import ASRDecoded_iter_CN
-        dataset = ASRDecoded_iter_CN(input, vocab, max_seq_length)
-    else:
-        from data_reader import ASRDecoded_iter_EN
-        dataset = ASRDecoded_iter_EN(input, vocab, max_seq_length)
+    dataset = ASRDecoded_iter(input, vocab, max_seq_length, is_cn)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(output, 'w') as fw:

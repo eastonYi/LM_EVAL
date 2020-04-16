@@ -9,7 +9,8 @@ class TextDataSet():
     """
     dataset for language model. Refer to the PTB dataset
     """
-    def __init__(self, data_file, vocab_file, max_seq_length):
+    def __init__(self, data_file, vocab_file, max_seq_length, all_cn):
+        self.all_cn = all_cn
         self.data_file = data_file
         self.size_dataset = self.get_size()
         self.max_seq_length = max_seq_length
@@ -87,9 +88,9 @@ def is_subtoken(x):
 
 
 class ASRDecoded(TextDataSet):
-    def __init__(self, data_file, ref_file, vocab_file, max_seq_length):
+    def __init__(self, data_file, ref_file, vocab_file, max_seq_length, all_cn):
         self.ref_file = ref_file
-        super().__init__(data_file, vocab_file, max_seq_length)
+        super().__init__(data_file, vocab_file, max_seq_length, all_cn)
 
     def __iter__(self):
         with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
@@ -187,12 +188,12 @@ class ASRDecoded(TextDataSet):
         return 1
 
 
-class ASRDecoded_iter_CN(ASRDecoded):
-    def __init__(self, data_file, vocab_file, max_seq_length):
-        super().__init__(data_file, None, vocab_file, max_seq_length)
+class ASRDecoded_iter(ASRDecoded):
+    def __init__(self, data_file, vocab_file, max_seq_length, all_cn):
+        super().__init__(data_file, None, vocab_file, max_seq_length, all_cn)
 
     def __iter__(self):
-        with open(self.data_file) as f, open('samples_cn.droped', 'w') as fw:
+        with open(self.data_file) as f, open('samples.droped', 'w') as fw:
             num_converted = 0
             for i, line in enumerate(f):
                 try:
@@ -202,17 +203,17 @@ class ASRDecoded_iter_CN(ASRDecoded):
                     fw.write(line + '. format error')
                     continue
 
-                # filter samples
-                if not self.all_cn(res, fw):
-                    fw.write(line + '. res contains tokens other than Chinese')
-                    continue
-
                 tokens = res.split()
                 list_all_cands = candidates.split()
 
-                try:
-                    assert len(list_all_cands) == len(tokens)
-                except AssertionError:
+                # filter samples
+                if len(res) <= self.max_seq_length - 2:
+                    fw.write(line + '. too long')
+                    continue
+                elif self.all_cn and not self.check_all_cn(res):
+                    fw.write(line + '. res contains tokens other than Chinese')
+                    continue
+                elif len(list_all_cands) != len(tokens):
                     fw.write(line + '. length of res is not equal to cands')
                     continue
 
@@ -234,21 +235,9 @@ class ASRDecoded_iter_CN(ASRDecoded):
 
         return self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
 
-    def all_cn(self, text, fw):
+    def check_all_cn(self, text):
         # filter samples
-        try:
-            assert re.findall("[\u4e00-\u9fa5 ]+", text)[0] == text
-        except (IndexError, AssertionError):
-            fw.write(text + ' subword' + '\n')
-            return 0
-
-        try:
-            assert len(text) <= self.max_seq_length - 2
-        except AssertionError:
-            fw.write(text + ' too long\n')
-            return 0
-
-        return 1
+        return re.findall("[\u4e00-\u9fa5 ]+", text)[0] == text
 
 
 def cand_filter(list_all_cands, threshold=0.0, is_cn=True):
