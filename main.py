@@ -193,7 +193,7 @@ def fix(args):
                 fw.write(new_line+'\n')
 
 
-def iter_fix():
+def iter_fix(args):
     from data_reader import cand_filter, choose, ASRDecoded_iter
 
     vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
