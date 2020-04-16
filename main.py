@@ -284,7 +284,7 @@ if __name__ == "__main__":
     # Read config
     logging.basicConfig(level=logging.INFO)
 
-    tf.logging.info("Saving results to %s" % args.new_file)
+    tf.logging.info("Saving results to %s" % args.output)
 
     if args.mode == 'rerank':
         rerank(args)
