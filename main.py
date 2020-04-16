@@ -4,7 +4,6 @@ import tensorflow as tf
 
 import modeling
 
-max_seq_length = 30
 predict_batch_size = 8
 
 
@@ -110,15 +109,15 @@ def load_bert_model(bert_dir):
     return vocab, input_pl, log_prob_op, config
 
 
-def rerank(bert_dir, input, output):
+def rerank(args):
     from data_reader import TextDataSet
 
-    dataset = TextDataSet(input, bert_dir + '/vocab.txt', max_seq_length)
+    dataset = TextDataSet(args.input, args.bert_dir + '/vocab.txt', args.max_seq_length)
 
-    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
+    vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(output, 'w') as fw:
+        with open(args.output, 'w') as fw:
             for uttid, sent, sent_inputs in dataset:
                 list_scores = []
 
@@ -144,18 +143,18 @@ def rerank(bert_dir, input, output):
             tf.logging.info("***** Finished *****")
 
 
-def fix(bert_dir, input, ref_file, output):
+def fix(args):
     from data_reader import ASRDecoded
 
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info("***** Running Fixing *****")
 
-    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
+    vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded(input, ref_file, vocab, max_seq_length)
+    dataset = ASRDecoded(args.input, args.ref_file, args.vocab, args.max_seq_length)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(output, 'w') as fw:
+        with open(args.output, 'w') as fw:
             for sent in dataset:
                 ref = sent[0]
                 list_decoded_cands = sent[1]
@@ -194,19 +193,41 @@ def fix(bert_dir, input, ref_file, output):
                 fw.write(new_line+'\n')
 
 
-def iter_fix(bert_dir, input, output, is_cn):
+def iter_fix():
     from data_reader import cand_filter, choose, ASRDecoded_iter
 
-    vocab, input_pl, log_prob_op, config = load_bert_model(bert_dir)
+    vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded_iter(input, vocab, max_seq_length, is_cn)
+    dataset = ASRDecoded_iter(args.input, args.vocab, args.max_seq_length, args.is_cn)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
-        with open(output, 'w') as fw:
+        with open(args.output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_filter(
-                    list_all_cands, threshold=0.002, is_cn=is_cn)
+                    list_all_cands, threshold=args.threshold, is_cn=args.is_cn)
+
+                while list_vague_idx:
+                    list_vague_idx = choose(list_all_cands)
+                    if list_vague_idx:
+                        list_vagues_inputs = dataset.gen_input(list_all_cands, list_vague_idx)
+                        vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
+                        dict_feed = {input_pl[0]: vague_inputs[0],
+                                     input_pl[1]: vague_inputs[1],
+                                     input_pl[2]: vague_inputs[2]}
+                        log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
+                        assert len(log_probs) == len(list_vague_idx)
+                        iter_log_probs = iter(log_probs)
+                        for i in list_vague_idx:
+                            cands = list_all_cands[i]
+                            list_tokens = [i.split(':')[0] for i in cands]
+                            log_prob = next(iter_log_probs)
+                            cands_ids = dataset.tokenizer.convert_tokens_to_ids(list_tokens)
+                            list_cands = []
+                            for cand, cand_id in zip(cands, cands_ids):
+                                list_cands.append((cand, np.exp(log_prob[0][cand_id])))
+                            list_cands.sort(key=lambda x: x[1], reverse=True)
+                            list_all_cands[i] = list_cands[0][0][0]
                 try:
                     while list_vague_idx:
                         list_vague_idx = choose(list_all_cands)
@@ -256,6 +277,8 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, dest='new_file')
     parser.add_argument('--bert_dir', type=str, dest='bert_dir')
     parser.add_argument('--trans', type=str, dest='trans')
+    parser.add_argument('--max_seq_length', type=int, dest='max_seq_length', default=30)
+    parser.add_argument('--threshold', type=float, dest='threshold', default=0.002)
     parser.add_argument('--is_cn', action='store_true', default=False)
     args = parser.parse_args()
     # Read config
@@ -264,10 +287,10 @@ if __name__ == "__main__":
     tf.logging.info("Saving results to %s" % args.new_file)
 
     if args.mode == 'rerank':
-        rerank(args.bert_dir, args.input_file, args.new_file)
+        rerank(args)
     elif args.mode == 'fix':
-        fix(args.bert_dir, args.input_file, args.new_file)
+        fix(args)
     elif args.mode == 'iter_fix':
-        iter_fix(args.bert_dir, args.input_file, args.new_file, args.is_cn)
+        iter_fix(args)
 
     logging.info("Done")

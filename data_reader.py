@@ -246,6 +246,8 @@ def cand_filter(list_all_cands, threshold=0.0, is_cn=True):
     for i, cands in enumerate(list_all_cands):
         list_cands = []
         for cand in cands.split(','):
+            if not len(cand.split(':')[0]):
+                continue
             if float(cand.split(':')[1]) <= threshold:
                 continue
             if is_cn and re.findall('[a-zA-Z]', cand.split(':')[0]):
@@ -269,7 +271,7 @@ def choose(list_all_cands):
     anchors = []
     list_to_fix = []
     for i, x in enumerate(list_all_cands):
-        if len(x) > 1:
+        if type(x) is list:
             list_idx.append(i)
         else:
             anchors.append(i)
