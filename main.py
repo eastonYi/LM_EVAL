@@ -273,8 +273,8 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument('-m', type=str, dest='mode')
-    parser.add_argument('--input', type=str, dest='input_file')
-    parser.add_argument('--output', type=str, dest='new_file')
+    parser.add_argument('--input', type=str, dest='input')
+    parser.add_argument('--output', type=str, dest='output')
     parser.add_argument('--bert_dir', type=str, dest='bert_dir')
     parser.add_argument('--trans', type=str, dest='trans')
     parser.add_argument('--max_seq_length', type=int, dest='max_seq_length', default=30)
