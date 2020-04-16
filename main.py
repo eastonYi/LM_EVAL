@@ -151,7 +151,7 @@ def fix(args):
 
     vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded(args.input, args.ref_file, args.vocab, args.max_seq_length)
+    dataset = ASRDecoded(args.input, args.ref_file, vocab, args.max_seq_length)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(args.output, 'w') as fw:
@@ -198,7 +198,7 @@ def iter_fix(args):
 
     vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded_iter(args.input, args.vocab, args.max_seq_length, args.is_cn)
+    dataset = ASRDecoded_iter(args.input, vocab, args.max_seq_length, args.is_cn)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(args.output, 'w') as fw:
