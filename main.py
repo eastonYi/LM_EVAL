@@ -249,7 +249,7 @@ def iter_fix(args):
                                 for cand, cand_id in zip(cands, cands_ids):
                                     list_cands.append((cand, np.exp(log_prob[0][cand_id])))
                                 list_cands.sort(key=lambda x: x[1], reverse=True)
-                                list_all_cands[i] = list_cands[0][0][0]
+                                list_all_cands[i] = list_cands[0][0].split(':')[0]
 
                 except KeyError:
                     print(res, list_all_cands, 'cand OOV')
