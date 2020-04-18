@@ -203,18 +203,18 @@ class ASRDecoded_iter(ASRDecoded):
                     fw.write(line + '. format error')
                     continue
 
-                tokens = res.split()
                 list_all_cands = candidates.split()
+
 
                 # filter samples
                 if len(res) <= self.max_seq_length - 2:
-                    fw.write(line + '. too long')
+                    fw.write(line.split() + '. too long')
                     continue
                 elif self.all_cn and not self.check_all_cn(res):
-                    fw.write(line + '. res contains tokens other than Chinese')
+                    fw.write(line.split() + '. res contains tokens other than Chinese')
                     continue
-                elif len(list_all_cands) != len(tokens):
-                    fw.write(line + '. length of res is not equal to cands')
+                elif ''.join(i.split(':')[0] for i in list_all_cands).replace(' ##', '') != res:
+                    fw.write(line.split() + '. length of res is not equal to cands')
                     continue
 
                 num_converted += 1

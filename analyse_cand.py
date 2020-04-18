@@ -1,4 +1,5 @@
 import editdistance as ed
+import re
 
 
 def fixed_cer(fixed_file):
@@ -82,6 +83,28 @@ def cand_filter(list_cands, threshold=0.0):
     return list_tokens
 
 
+def fixed2trans(f_fix, f_fixed_trans):
+    i = True
+    num_saved = 0
+    with open(f_fix) as f, open(f_fixed_trans, 'w') as fw:
+        for j, line in enumerate(f):
+            uttid, ref, res, fixed = line.strip().split(',', 3)
+            uttid = uttid.split(':')[1]
+            ref = ref.split(':')[1]
+            res = res.split(':')[1]
+            fixed = fixed.split(':', 1)[1]
+
+            if i:
+                print(ref, res, fixed)
+                print(len(ref), len(res))
+                i = False
+
+            if len(ref) - 1 < len(res) < len(ref) + 1:
+                fw.write(uttid + ' ' + ' '.join(fixed) + '\n')
+                num_saved += 1
+    print('input: {}, output: {}'.format(j, num_saved))
+
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
@@ -97,3 +120,5 @@ if __name__ == "__main__":
         cand_cer_upper(args.input, args.output, args.output2, args.threshold)
     elif args.mode == 'fixed':
         fixed_cer(args.input)
+    elif args.mode == 'fixed2trans':
+        fixed2trans(args.input, args.output)
