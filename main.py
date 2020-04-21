@@ -134,13 +134,8 @@ def rerank(args):
                     list_scores.append(np.exp(log_prob[0][token_id]))
 
                 ppl = np.mean(list_scores)
-                new_line = 'id:' + uttid + \
-                            ',preds:{}'.format(' '.join(sent)) + \
-                            ',score_lm:{}'.format(' '.join('{:.3f}'.format(socre) for socre in list_scores)) + \
-                            ',ppl:{:.2f}'.format(ppl)
+                new_line = uttid + ' {:.2f} '.format(ppl) + ' '.join(sent)
                 fw.write(new_line+'\n')
-
-            tf.logging.info("***** Finished *****")
 
 
 def fix(args):

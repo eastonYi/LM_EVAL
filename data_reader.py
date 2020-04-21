@@ -50,41 +50,13 @@ class TextDataSet():
 
                 yield uttid, tokens, self.create_sequential_mask(input_tokens, input_ids, input_mask)
 
-    def create_sequential_mask(self, input_tokens, input_ids, input_mask):
-        """Mask each token/word sequentially"""
-
-        list_inputs = []
-        for i in range(1, len(input_tokens)-1):
-            mask_count = 1
-            while is_subtoken(input_tokens[i+mask_count]):
-                mask_count += 1
-
-            input_ids_new, masked_lm_positions = \
-                self.create_masked_lm_prediction(input_ids, i, mask_count)
-            pad_len = self.max_seq_length - len(masked_lm_positions)
-
-            masked_lm_positions += [0] * pad_len
-
-            i += mask_count
-            output = (input_ids_new, input_mask, masked_lm_positions)
-            list_inputs.append(output)
-
-        return list_inputs
-
-    def create_masked_lm_prediction(self, input_ids, mask_position, mask_count=1):
+    def create_masked_lm_prediction(self, input_ids, mask_position):
         new_input_ids = list(input_ids)
-        candidate_lm_labels = []
-        masked_lm_positions = list(range(mask_position, mask_position + mask_count))
+        masked_lm_positions = list(range(mask_position, mask_position+1))
         for i in masked_lm_positions:
             new_input_ids[i] = self.MASKED_ID
-            candidate_lm_labels.append(input_ids[i])
 
         return new_input_ids, masked_lm_positions
-
-
-
-def is_subtoken(x):
-    return x.startswith("##")
 
 
 class ASRDecoded(TextDataSet):
@@ -161,14 +133,6 @@ class ASRDecoded(TextDataSet):
             list_outputs.append(output)
 
         return list_outputs
-
-    def create_masked_lm_prediction(self, input_ids, mask_position):
-        new_input_ids = list(input_ids)
-        masked_lm_positions = list(range(mask_position, mask_position+1))
-        for i in masked_lm_positions:
-            new_input_ids[i] = self.MASKED_ID
-
-        return new_input_ids, masked_lm_positions
 
     def check(self, text, ref, fw):
         # filter samples
