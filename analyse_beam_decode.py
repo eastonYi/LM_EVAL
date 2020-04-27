@@ -1,6 +1,8 @@
 def gen_top1(args):
+    list_uttid = []
     with open(args.input) as f, open(args.output, 'w') as fw:
         for i, line in enumerate(f):
+            uttid, trans = line.strip().split(' ', 1)
             if i % args.top == 0:
                 fw.write(line.strip() + '\n')
 

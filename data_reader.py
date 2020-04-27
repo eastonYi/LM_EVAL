@@ -9,8 +9,7 @@ class TextDataSet():
     """
     dataset for language model. Refer to the PTB dataset
     """
-    def __init__(self, data_file, vocab_file, max_seq_length, all_cn):
-        self.all_cn = all_cn
+    def __init__(self, data_file, vocab_file, max_seq_length):
         self.data_file = data_file
         self.size_dataset = self.get_size()
         self.max_seq_length = max_seq_length
@@ -60,9 +59,9 @@ class TextDataSet():
 
 
 class ASRDecoded(TextDataSet):
-    def __init__(self, data_file, ref_file, vocab_file, max_seq_length, all_cn):
+    def __init__(self, data_file, ref_file, vocab_file, max_seq_length):
         self.ref_file = ref_file
-        super().__init__(data_file, vocab_file, max_seq_length, all_cn)
+        super().__init__(data_file, vocab_file, max_seq_length)
 
     def __iter__(self):
         with open(self.ref_file) as f_ref, open(self.data_file) as f, open('samples.droped', 'w') as fw:
@@ -72,8 +71,8 @@ class ASRDecoded(TextDataSet):
                 _uttid, text, candidates = line.strip().split(',', maxsplit=2)
                 assert uttid == _uttid
 
-                # check if the sent is too long or contains OOV
-                if not self.check(text, ref, fw):
+                if len(text.split()) <= self.max_seq_length - 2:
+                    fw.write(line.split() + '. too long')
                     continue
 
                 tokens = list(text)
@@ -137,13 +136,6 @@ class ASRDecoded(TextDataSet):
     def check(self, text, ref, fw):
         # filter samples
         try:
-            assert re.findall("[\u4e00-\u9fa5]+", text)[0] == text
-            assert len(self.tokenizer.tokenize(ref)) == len(ref)
-        except (IndexError, AssertionError):
-            fw.write(ref + ', ' + text + ' subword' + '\n')
-            return 0
-
-        try:
             assert len(text) <= self.max_seq_length - 2
         except AssertionError:
             fw.write(ref + ', ' + text + ' too long\n')
@@ -153,8 +145,8 @@ class ASRDecoded(TextDataSet):
 
 
 class ASRDecoded_iter(ASRDecoded):
-    def __init__(self, data_file, vocab_file, max_seq_length, all_cn):
-        super().__init__(data_file, None, vocab_file, max_seq_length, all_cn)
+    def __init__(self, data_file, vocab_file, max_seq_length):
+        super().__init__(data_file, None, vocab_file, max_seq_length)
 
     def __iter__(self):
         with open(self.data_file) as f, open('samples.droped', 'w') as fw:
@@ -169,17 +161,13 @@ class ASRDecoded_iter(ASRDecoded):
 
                 list_all_cands = candidates.split()
 
-
                 # filter samples
                 if len(res) <= self.max_seq_length - 2:
                     fw.write(line.split() + '. too long')
                     continue
-                elif self.all_cn and not self.check_all_cn(res):
-                    fw.write(line.split() + '. res contains tokens other than Chinese')
-                    continue
-                elif ''.join(i.split(':')[0] for i in list_all_cands).replace(' ##', '') != res:
-                    fw.write(line.split() + '. length of res is not equal to cands')
-                    continue
+                # elif ''.join(i.split(':')[0] for i in list_all_cands).replace(' ##', '') != res:
+                #     fw.write(line.split() + '. length of res is not equal to cands')
+                #     continue
 
                 num_converted += 1
                 if i % 1000 == 0:
@@ -187,7 +175,7 @@ class ASRDecoded_iter(ASRDecoded):
 
                 yield uttid, ref, res, list_all_cands
 
-        print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
+        print('***************utilized {}/{} samples to be fake samples***************'.format(num_converted, i+1))
 
     def gen_input(self, list_decoded_cands, list_vague_idx):
         assert list_vague_idx
@@ -199,12 +187,8 @@ class ASRDecoded_iter(ASRDecoded):
 
         return self.create_sequential_mask(input_ids, input_mask, list_vague_idx)
 
-    def check_all_cn(self, text):
-        # filter samples
-        return re.findall("[\u4e00-\u9fa5 ]+", text)[0] == text
 
-
-def cand_filter(list_all_cands, threshold=0.0, is_cn=True):
+def cand_filter(list_all_cands, threshold=0.0):
     list_all_cands_new = []
     list_vague_idx = []
     for i, cands in enumerate(list_all_cands):
@@ -213,8 +197,6 @@ def cand_filter(list_all_cands, threshold=0.0, is_cn=True):
             if not len(cand.split(':')[0]):
                 continue
             if float(cand.split(':')[1]) <= threshold:
-                continue
-            if is_cn and re.findall('[a-zA-Z]', cand.split(':')[0]):
                 continue
             list_cands.append(cand)
 
