@@ -193,14 +193,14 @@ def iter_fix(args):
 
     vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded_iter(args.input, vocab, args.max_seq_length, args.is_cn)
+    dataset = ASRDecoded_iter(args.input, vocab, args.max_seq_length)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(args.output, 'w') as fw:
             for sent in dataset:
                 uttid, ref, res, list_all_cands = sent
                 list_all_cands, list_vague_idx = cand_filter(
-                    list_all_cands, threshold=args.threshold, is_cn=args.is_cn)
+                    list_all_cands, threshold=args.threshold)
 
                 while list_vague_idx:
                     list_vague_idx = choose(list_all_cands)
@@ -274,7 +274,6 @@ if __name__ == "__main__":
     parser.add_argument('--trans', type=str, dest='trans')
     parser.add_argument('--max_seq_length', type=int, dest='max_seq_length', default=30)
     parser.add_argument('--threshold', type=float, dest='threshold', default=0.002)
-    parser.add_argument('--is_cn', action='store_true', default=False)
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)
