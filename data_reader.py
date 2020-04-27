@@ -196,6 +196,8 @@ def cand_filter(list_all_cands, threshold=0.0):
         for cand in cands.split(','):
             if not len(cand.split(':')[0]):
                 continue
+            if '<' in cand.split(':')[0]:
+                continue
             if float(cand.split(':')[1]) <= threshold:
                 continue
             list_cands.append(cand)

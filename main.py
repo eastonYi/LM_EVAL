@@ -251,9 +251,10 @@ def iter_fix(args):
                     list_all_cands = []
 
                 for cands in list_all_cands:
-                    if len(cands) > 1:
+                    if type(cands) is list:
+                        print('confused')
                         list_all_cands = []
-                        break
+                        
                 if not list_all_cands:
                     continue
 
