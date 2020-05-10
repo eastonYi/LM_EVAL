@@ -30,7 +30,7 @@ class TextDataSet():
                 tokens = self.tokenizer.tokenize(text)
 
                 try:
-                    assert len(text) <= self.max_seq_length - 2
+                    assert len(tokens) <= self.max_seq_length - 2
                 except AssertionError:
                     print(text, '. too long')
                     continue
@@ -48,6 +48,19 @@ class TextDataSet():
                     print('processed {} sentences.'.format(i))
 
                 yield uttid, tokens, self.create_sequential_mask(input_tokens, input_ids, input_mask)
+
+    def create_sequential_mask(self, input_ids, input_mask, list_vague_idx):
+        """Mask each token/word sequentially"""
+        list_outputs = []
+        for i in list_vague_idx:
+            input_ids_new, masked_lm_positions = \
+                self.create_masked_lm_prediction(input_ids, i+1)
+
+            masked_lm_positions += [0] * (self.max_seq_length - len(masked_lm_positions))
+            output = (input_ids_new, input_mask, masked_lm_positions)
+            list_outputs.append(output)
+
+        return list_outputs
 
     def create_masked_lm_prediction(self, input_ids, mask_position):
         new_input_ids = list(input_ids)
@@ -120,19 +133,6 @@ class ASRDecoded(TextDataSet):
 
         print('***************utilized {}/{} samples to be fake samples*********************'.format(num_converted, i+1))
 
-    def create_sequential_mask(self, input_ids, input_mask, list_vague_idx):
-        """Mask each token/word sequentially"""
-        list_outputs = []
-        for i in list_vague_idx:
-            input_ids_new, masked_lm_positions = \
-                self.create_masked_lm_prediction(input_ids, i+1)
-
-            masked_lm_positions += [0] * (self.max_seq_length - len(masked_lm_positions))
-            output = (input_ids_new, input_mask, masked_lm_positions)
-            list_outputs.append(output)
-
-        return list_outputs
-
     def check(self, text, ref, fw):
         # filter samples
         try:
@@ -162,7 +162,7 @@ class ASRDecoded_iter(ASRDecoded):
                 list_all_cands = candidates.split()
 
                 # filter samples
-                if len(res) <= self.max_seq_length - 2:
+                if len(res.strip()) > self.max_seq_length - 2:
                     fw.write(line.split() + '. too long')
                     continue
                 # elif ''.join(i.split(':')[0] for i in list_all_cands).replace(' ##', '') != res:
@@ -194,9 +194,7 @@ def cand_filter(list_all_cands, threshold=0.0):
     for i, cands in enumerate(list_all_cands):
         list_cands = []
         for cand in cands.split(','):
-            if not len(cand.split(':')[0]):
-                continue
-            if '<' in cand.split(':')[0]:
+            if cand.startswith(':') or cand.startswith('<'):
                 continue
             if float(cand.split(':')[1]) <= threshold:
                 continue

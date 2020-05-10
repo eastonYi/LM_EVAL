@@ -138,53 +138,79 @@ def rerank(args):
                 fw.write(new_line+'\n')
 
 
-def fix(args):
-    from data_reader import ASRDecoded
-
-    tf.logging.set_verbosity(tf.logging.INFO)
-    tf.logging.info("***** Running Fixing *****")
+def onepass_fix(args):
+    from data_reader import cand_filter, choose, ASRDecoded_iter
 
     vocab, input_pl, log_prob_op, config = load_bert_model(args.bert_dir)
 
-    dataset = ASRDecoded(args.input, args.ref_file, vocab, args.max_seq_length)
+    dataset = ASRDecoded_iter(args.input, vocab, args.max_seq_length)
 
     with tf.train.MonitoredTrainingSession(config=config) as sess:
         with open(args.output, 'w') as fw:
             for sent in dataset:
-                ref = sent[0]
-                list_decoded_cands = sent[1]
-                print(list_decoded_cands)
-                if len(sent) == 2:
-                    str_org  = ''.join(i[0] for i in list_decoded_cands)
-                    new_line = 'ref:' + ref + ',asr output:' + str_org
-                elif len(sent) == 3:
-                    list_vagues_inputs = sent[2]
-                    list_fixed = []
-                    list_orgin = []
-                    vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
-                    dict_feed = {input_pl[0]: vague_inputs[0],
-                                 input_pl[1]: vague_inputs[1],
-                                 input_pl[2]: vague_inputs[2]}
-                    log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
-                    iter_log_probs = iter(log_probs)
-                    assert sum([1 for i in list_decoded_cands if len(i)>1]) == len(log_probs)
-                    for cands in list_decoded_cands:
-                        if len(cands) > 1:
-                            list_cands = []
+                uttid, ref, res, list_all_cands = sent
+                list_all_cands, list_vague_idx = cand_filter(
+                    list_all_cands, threshold=args.threshold)
+
+                while list_vague_idx:
+                    list_vague_idx = choose(list_all_cands)
+                    if list_vague_idx:
+                        list_vagues_inputs = dataset.gen_input(list_all_cands, list_vague_idx)
+                        vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
+                        dict_feed = {input_pl[0]: vague_inputs[0],
+                                     input_pl[1]: vague_inputs[1],
+                                     input_pl[2]: vague_inputs[2]}
+                        log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
+                        assert len(log_probs) == len(list_vague_idx)
+                        iter_log_probs = iter(log_probs)
+                        for i in list_vague_idx:
+                            cands = list_all_cands[i]
+                            list_tokens = [i.split(':')[0] for i in cands]
                             log_prob = next(iter_log_probs)
-                            cands_ids = dataset.tokenizer.convert_tokens_to_ids(cands)
+                            cands_ids = dataset.tokenizer.convert_tokens_to_ids(list_tokens)
+                            list_cands = []
                             for cand, cand_id in zip(cands, cands_ids):
-                                list_cands.append('{}:{:.2e}'.format(cand, np.exp(log_prob[0][cand_id])))
-                            list_cands.sort(key=lambda x: float(x.split(':')[1]), reverse=True)
-                            list_fixed.append('(')
-                            list_fixed.append(','.join(list_cands))
-                            list_fixed.append(')')
-                        else:
-                            list_fixed.append(cands[0])
-                        list_orgin.append(cands[0])
-                    str_org = ''.join(list_orgin)
-                    str_fixed = ''.join(list_fixed)
-                    new_line = 'ref:' + ref + ',asr output:' + str_org + ',lm fixed:' + str_fixed
+                                list_cands.append((cand, np.exp(log_prob[0][cand_id])))
+                            list_cands.sort(key=lambda x: x[1], reverse=True)
+                            list_all_cands[i] = list_cands[0][0][0]
+                try:
+                    while list_vague_idx:
+                        list_vague_idx = choose(list_all_cands)
+                        if list_vague_idx:
+                            list_vagues_inputs = dataset.gen_input(list_all_cands, list_vague_idx)
+                            vague_inputs = [np.array(i, dtype=np.int32) for i in zip(*list_vagues_inputs)]
+                            dict_feed = {input_pl[0]: vague_inputs[0],
+                                         input_pl[1]: vague_inputs[1],
+                                         input_pl[2]: vague_inputs[2]}
+                            log_probs = sess.run(log_prob_op, feed_dict=dict_feed)
+                            assert len(log_probs) == len(list_vague_idx)
+                            iter_log_probs = iter(log_probs)
+                            for i in list_vague_idx:
+                                cands = list_all_cands[i]
+                                list_tokens = [i.split(':')[0] for i in cands]
+                                log_prob = next(iter_log_probs)
+                                cands_ids = dataset.tokenizer.convert_tokens_to_ids(list_tokens)
+                                list_cands = []
+                                for cand, cand_id in zip(cands, cands_ids):
+                                    list_cands.append((cand, np.exp(log_prob[0][cand_id])))
+                                list_cands.sort(key=lambda x: x[1], reverse=True)
+                                list_all_cands[i] = list_cands[0][0].split(':')[0]
+
+                except KeyError:
+                    print(res, list_all_cands, 'cand OOV')
+                    list_all_cands = []
+
+                for cands in list_all_cands:
+                    if type(cands) is list:
+                        print('confused')
+                        list_all_cands = []
+                        break
+
+                if not list_all_cands:
+                    continue
+
+                fixed = ' '.join(list_all_cands)
+                new_line = 'uttid:{},ref:{},res:{},fixed:{}'.format(uttid, ref, res, fixed)
                 fw.write(new_line+'\n')
 
 
@@ -254,7 +280,8 @@ def iter_fix(args):
                     if type(cands) is list:
                         print('confused')
                         list_all_cands = []
-                        
+                        break
+
                 if not list_all_cands:
                     continue
 
@@ -284,7 +311,7 @@ if __name__ == "__main__":
     if args.mode == 'rerank':
         rerank(args)
     elif args.mode == 'fix':
-        fix(args)
+        onepass_fix(args)
     elif args.mode == 'iter_fix':
         iter_fix(args)
 
